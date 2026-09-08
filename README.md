@@ -72,6 +72,7 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | `npm run dev` | Serveur de développement Next |
 | `npm test` | Suite Vitest complète (165 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
+| `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
 | `npm run build` | Build de production |
 | `npm run build:static` | Site statique dans `apps/web/out` |
@@ -237,6 +238,34 @@ La procédure complète, pas à pas, est dans [`TESTING.md`](./TESTING.md).
 En résumé : ouvre quatre **fenêtres de navigation privée séparées** — le `sessionToken`
 vit dans le `localStorage`, et deux onglets d'une même fenêtre le partagent. La connexion
 WebRTC entre deux onglets du même navigateur fonctionne normalement.
+
+## Vérifier le transport
+
+Deux outils, et ils ne disent pas la même chose.
+
+**`/diagnostic`**, dans le site. Il teste le transport en quatre étapes sur l'appareil qui
+l'ouvre, et un bouton copie le rapport entier — c'est ce qu'il faut demander à quelqu'un
+dont le jeu ne marche pas.
+
+Attention à sa limite, qui est réelle : les étapes « ouverture du canal » et « passage
+d'un message » se font **en boucle sur l'appareil**, qui se connecte à lui-même. Safari
+refuse cette boucle tout en fonctionnant parfaitement entre deux téléphones. Un échec y
+est donc **non concluant**. La page affiche aussi l'historique des vraies parties tentées,
+avec leur état ICE : cette liste-là fait foi.
+
+**`npm run test:e2e`**, en développement. Il joue une vraie partie entre deux navigateurs
+— création, code, jointure, diffusion temps réel — et affiche la négociation ICE des deux
+côtés. C'est le seul test qui exerce WebRTC pour de bon :
+
+```bash
+npm run dev          # dans un terminal
+npm run test:e2e     # dans un autre
+BASE=https://mon-site npm run test:e2e   # ou contre le site déployé
+```
+
+Il n'est pas dans `npm test` : il lui faut un serveur et un vrai Chrome. **À lancer avant
+tout déploiement qui touche à `lib/net/`** — les tests unitaires ne couvrent pas cette
+couche, et c'est elle qui a produit toutes les pannes de production jusqu'ici.
 
 ## Dépannage
 

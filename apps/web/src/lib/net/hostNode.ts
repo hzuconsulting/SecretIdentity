@@ -16,6 +16,8 @@ import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from '
 import { PeerUnavailableError, openPeer } from './peer';
 import { clearHostedGame, loadHostedGame, saveHostedGame } from './hostStorage';
 import { encodeMessage, parseClientMessage, type HostMessage } from './protocol';
+import { watchIce } from './iceInfo';
+import { recordAttempt } from './connectionLog';
 
 /**
  * Le nœud qui héberge la partie.
@@ -191,10 +193,18 @@ export class HostNode implements GameNode {
 
   private accept(connection: DataConnection): void {
     const id = connection.connectionId;
+    const ice = watchIce(connection);
 
     connection.on('open', () => {
       this.connections.set(id, connection);
       this.host.connect(id);
+      recordAttempt({
+        role: 'hôte',
+        code: this.code,
+        outcome: 'réussi',
+        detail: `invité accepté · ${ice.describe()}`,
+      });
+      ice.stop();
     });
 
     connection.on('data', (raw) => {

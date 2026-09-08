@@ -145,6 +145,26 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 
 ---
 
+## 1 bis. Vraie partie automatisée
+
+```bash
+npm run dev          # dans un terminal
+npm run test:e2e     # dans un autre
+```
+
+Deux contextes de navigateur séparés, une partie créée, un code, une jointure, et la
+vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
+la négociation ICE des deux côtés.
+
+C'est le seul test qui exerce réellement WebRTC. Les 165 tests de la section 1 parlent au
+moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
+transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
+déploiement touchant `apps/web/src/lib/net/`.**
+
+`HEADED=1 npm run test:e2e` ouvre les fenêtres, pour regarder ce qui se passe.
+
+---
+
 ## 2. Vérification manuelle du salon
 
 Le jeu n'est pas encore jouable (les manches arrivent aux Lots 2 à 4). Ce qui doit être

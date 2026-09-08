@@ -7,6 +7,8 @@ import { REQUEST_TIMEOUT_MS, peerIdForCode } from '@/lib/config';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { openPeer } from './peer';
 import { encodeMessage, parseHostMessage } from './protocol';
+import { watchIce } from './iceInfo';
+import { recordAttempt } from './connectionLog';
 
 /**
  * Le nœud d'un joueur invité.
@@ -160,13 +162,28 @@ export class GuestNode implements GameNode {
         serialization: 'raw',
       });
 
+      // La négociation est observée pour elle-même : c'est la seule tentative
+      // qui traverse un vrai réseau, donc la seule dont le verdict compte
+      // vraiment. `/diagnostic` la relira après coup.
+      const ice = watchIce(connection);
+      let settled = false;
+
+      const settle = (outcome: 'réussi' | 'échec', detail: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        recordAttempt({ role: 'invité', code: this.code, outcome, detail });
+        ice.stop();
+      };
+
       const timeout = setTimeout(() => {
+        settle('échec', `délai dépassé · ${ice.describe()}`);
         connection.close();
         reject(new Error("L'hôte de la partie ne répond pas."));
       }, 15_000);
 
       connection.on('open', () => {
-        clearTimeout(timeout);
+        settle('réussi', ice.describe());
         this.connection = connection;
         this.retry = 0;
         this.events.setStatus('online');
@@ -177,11 +194,11 @@ export class GuestNode implements GameNode {
 
       connection.on('data', (raw) => this.receive(raw));
       connection.on('close', () => {
-        clearTimeout(timeout);
+        settle('échec', `canal fermé · ${ice.describe()}`);
         this.onLost();
       });
-      connection.on('error', () => {
-        clearTimeout(timeout);
+      connection.on('error', (error) => {
+        settle('échec', `${error.type ?? 'erreur'} · ${ice.describe()}`);
         this.onLost();
       });
     });

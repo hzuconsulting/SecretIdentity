@@ -4,6 +4,7 @@ import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { openPeer, supportsWebRtc } from './peer';
 import { encodeMessage, parseClientMessage } from './protocol';
+import { watchIce } from './iceInfo';
 
 /**
  * Diagnostic du transport, étape par étape.
@@ -155,8 +156,6 @@ interface Loopback {
  * candidat `srflx`) de « candidats trouvés mais aucun chemin retenu ».
  */
 function openLoopback(caller: Peer, receiver: Peer): Promise<Loopback> {
-  const candidateTypes = new Set<string>();
-
   // Le récepteur est armé avant l'appel : un message ne doit pas arriver avant
   // que quelqu'un l'écoute.
   const received = new Promise<string | null>((resolve) => {
@@ -168,32 +167,24 @@ function openLoopback(caller: Peer, receiver: Peer): Promise<Loopback> {
 
   return new Promise<Loopback>((resolve) => {
     const outgoing = caller.connect(receiver.id, { reliable: true, serialization: 'raw' });
+    const ice = watchIce(outgoing);
 
     let settled = false;
     const finish = (opened: boolean, detail: string) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      ice.stop();
       resolve({ opened, detail, outgoing, received });
     };
 
     const timeout = setTimeout(
-      () => finish(false, `délai dépassé · ${iceSummary(outgoing, candidateTypes)}`),
+      () => finish(false, `délai dépassé · ${ice.describe()}`),
       OPEN_TIMEOUT_MS,
     );
 
-    // `peerConnection` existe dès la construction du négociateur ; on reste
-    // prudent, ce n'est pas une API que PeerJS s'engage à garder.
-    try {
-      outgoing.peerConnection?.addEventListener('icecandidate', (event) => {
-        if (event.candidate?.type) candidateTypes.add(event.candidate.type);
-      });
-    } catch {
-      // Sans les candidats, le diagnostic reste utile — il sera juste moins précis.
-    }
-
-    outgoing.on('open', () => finish(true, iceSummary(outgoing, candidateTypes)));
-    outgoing.on('error', (error) => finish(false, message(error)));
+    outgoing.on('open', () => finish(true, ice.describe()));
+    outgoing.on('error', (error) => finish(false, `${message(error)} · ${ice.describe()}`));
   });
 }
 
@@ -232,14 +223,6 @@ async function sendProbe(
 // ─────────────────────────────────────────────────────────────
 //  Détails
 // ─────────────────────────────────────────────────────────────
-
-function iceSummary(connection: DataConnection, candidateTypes: Set<string>): string {
-  const pc: RTCPeerConnection | undefined = connection.peerConnection;
-  const candidates = candidateTypes.size > 0 ? [...candidateTypes].join('+') : 'aucun';
-
-  if (!pc) return `candidats ${candidates}`;
-  return `ICE ${pc.iceConnectionState}/${pc.iceGatheringState} · candidats ${candidates}`;
-}
 
 function describeEnvironment(): string {
   if (typeof window === 'undefined') return 'hors navigateur';

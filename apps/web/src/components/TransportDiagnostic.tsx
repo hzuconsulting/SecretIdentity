@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import type { DiagnosticReport, DiagnosticStep } from '@/lib/net/selfTest';
+import { readAttempts, type ConnectionAttempt } from '@/lib/net/connectionLog';
 import { Button } from '@/components/ui/Button';
 
 /**
@@ -18,8 +19,13 @@ import { Button } from '@/components/ui/Button';
  */
 export function TransportDiagnostic() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
+  const [attempts, setAttempts] = useState<ConnectionAttempt[]>([]);
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Les vraies tentatives valent mieux que la boucle locale : elles ont, elles,
+  // traversé un réseau.
+  useEffect(() => setAttempts(readAttempts()), []);
 
   const run = useCallback(async () => {
     setRunning(true);
@@ -36,7 +42,7 @@ export function TransportDiagnostic() {
   async function copy() {
     if (!report) return;
     try {
-      await navigator.clipboard.writeText(asText(report));
+      await navigator.clipboard.writeText(asText(report, attempts));
       setCopied(true);
       setTimeout(() => setCopied(false), 2_000);
     } catch {
@@ -82,6 +88,41 @@ export function TransportDiagnostic() {
             {VERDICTS[report.outcome]}
           </p>
 
+          <section>
+            <h2 className="mb-2 font-display text-xs font-extrabold uppercase tracking-widest text-muted">
+              Vraies parties tentées
+            </h2>
+
+            {attempts.length === 0 ? (
+              <p className="rounded-tile bg-white/60 p-4 text-sm text-muted">
+                Aucune pour l’instant. C’est pourtant{' '}
+                <strong className="text-ink">le test qui compte</strong> : crée une partie,
+                fais-la rejoindre par quelqu’un, puis reviens ici — la tentative sera
+                détaillée, qu’elle réussisse ou non.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {attempts.map((attempt) => (
+                  <li
+                    key={attempt.at}
+                    className="rounded-tile bg-white/60 p-3 text-xs text-muted"
+                  >
+                    <span
+                      className={`font-display font-extrabold uppercase tracking-wide ${
+                        attempt.outcome === 'réussi' ? 'text-mint' : 'text-pink'
+                      }`}
+                    >
+                      {attempt.outcome}
+                    </span>{' '}
+                    · {attempt.role} · partie {attempt.code} ·{' '}
+                    {new Date(attempt.at).toLocaleTimeString('fr-FR')}
+                    <span className="mt-0.5 block break-words">{attempt.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <details className="rounded-tile bg-white/60 p-4 text-sm text-muted">
             <summary className="cursor-pointer font-display text-xs font-extrabold uppercase tracking-widest">
               Contexte technique
@@ -103,10 +144,12 @@ export function TransportDiagnostic() {
       </div>
 
       <p className="text-xs text-muted">
-        Ce test se fait en boucle sur cet appareil : il ne traverse aucun réseau. Certains
-        navigateurs refusent de se connecter à eux-mêmes tout en marchant très bien entre
-        deux téléphones — si l’étape « ouverture du canal » échoue, tente quand même une
-        vraie partie avant d’en conclure quelque chose.
+        Le test du haut se fait <strong>en boucle sur cet appareil</strong> : il ne traverse
+        aucun réseau. Safari refuse de se connecter à lui-même tout en fonctionnant très
+        bien entre deux téléphones, donc un échec à l’étape « ouverture du canal » n’y veut
+        pas dire grand-chose. Les deux étapes qui comptent vraiment ici sont « WebRTC
+        disponible » et « mise en relation » ; pour le reste, fie-toi à la liste des vraies
+        parties.
       </p>
     </main>
   );
@@ -146,16 +189,32 @@ const VERDICTS: Record<DiagnosticReport['outcome'], string> = {
   'no-signaling':
     'Le service de mise en relation ne répond pas. C’est ta connexion ou le pare-feu du réseau, pas le jeu.',
   'no-channel':
-    'Les pairs se trouvent mais le canal ne s’ouvre jamais. C’est une piste réseau (ICE) — et c’est aussi le cas où la boucle locale ment : tente une vraie partie avant de conclure.',
+    'Les pairs se trouvent mais le canal ne s’ouvre pas — en boucle locale. Sur Safari c’est le résultat attendu : un iPhone ne sait pas se joindre lui-même. Ce n’est donc pas un verdict sur le jeu ; seule une vraie partie en est un.',
   'no-data':
     'Le canal s’ouvre mais rien ne le traverse. C’est le navigateur qui n’écrit pas sur le canal — le cas le plus grave, et celui qui demande une correction du jeu.',
 };
 
-function asText(report: DiagnosticReport): string {
+function asText(report: DiagnosticReport, attempts: ConnectionAttempt[]): string {
   const lines = report.steps.map(
     (step) =>
       `${step.status === 'ok' ? 'OK  ' : step.status === 'failed' ? 'ÉCHEC' : '—   '} ${step.label} : ${step.detail}`,
   );
 
-  return [`Verdict : ${report.outcome}`, '', ...lines, '', report.environment].join('\n');
+  const historique = attempts.length
+    ? attempts.map(
+        (attempt) =>
+          `${attempt.outcome.toUpperCase()} · ${attempt.role} · ${attempt.code} : ${attempt.detail}`,
+      )
+    : ['(aucune vraie partie tentée)'];
+
+  return [
+    `Verdict boucle locale : ${report.outcome}`,
+    '',
+    ...lines,
+    '',
+    'Vraies parties tentées :',
+    ...historique,
+    '',
+    report.environment,
+  ].join('\n');
 }
