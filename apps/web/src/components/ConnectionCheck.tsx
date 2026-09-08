@@ -1,9 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import type { SelfTestResult } from '@/lib/net/selfTest';
+import type { Outcome } from '@/lib/net/selfTest';
 
-type Status = 'checking' | SelfTestResult;
+type Status = 'checking' | Outcome;
 
 /**
  * Vérification du transport, avant qu'elle ne coûte une partie.
@@ -15,10 +16,8 @@ type Status = 'checking' | SelfTestResult;
  * et sans ce voyant le joueur ne l'apprendrait qu'après avoir tapé son pseudo et
  * attendu ses amis devant un salon qui ne se remplit pas.
  *
- * La troisième condition mérite son test : un canal peut s'ouvrir sans rien
- * laisser passer, et c'est précisément ce qui arrivait sur iPhone.
- *
- * Les pairs ouverts ici sont jetables, détruits dès le verdict rendu.
+ * Le voyant ne dit ici que l'essentiel ; le détail par étape vit sur
+ * `/diagnostic`, vers lequel on ne renvoie que quand il y a lieu.
  */
 export function ConnectionCheck() {
   const [status, setStatus] = useState<Status>('checking');
@@ -28,8 +27,8 @@ export function ConnectionCheck() {
 
     void (async () => {
       const { runTransportSelfTest } = await import('@/lib/net/selfTest');
-      const result = await runTransportSelfTest();
-      if (!cancelled) setStatus(result);
+      const outcome = await runTransportSelfTest();
+      if (!cancelled) setStatus(outcome);
     })();
 
     return () => {
@@ -40,27 +39,38 @@ export function ConnectionCheck() {
   const dot =
     status === 'ready' ? 'bg-mint' : status === 'checking' ? 'bg-sun' : 'bg-pink';
 
+  const troubled = status !== 'ready' && status !== 'checking';
+
   return (
-    <p
-      className="flex items-center justify-center gap-2 text-center text-sm text-muted"
-      aria-live="polite"
-    >
-      <span
-        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dot}`}
-        aria-hidden="true"
-      />
-      {LABELS[status]}
-    </p>
+    <div className="flex flex-col items-center gap-1">
+      <p
+        className="flex items-center justify-center gap-2 text-center text-sm text-muted"
+        aria-live="polite"
+      >
+        <span
+          className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dot}`}
+          aria-hidden="true"
+        />
+        {LABELS[status]}
+      </p>
+
+      {troubled ? (
+        <Link
+          href="/diagnostic"
+          className="inline-flex min-h-[44px] items-center font-display text-xs font-extrabold uppercase tracking-widest text-violet"
+        >
+          Voir le diagnostic détaillé
+        </Link>
+      ) : null}
+    </div>
   );
 }
 
 const LABELS: Record<Status, string> = {
   checking: 'Vérification de la connexion…',
   ready: 'Prêt · aucun serveur nécessaire, les téléphones se parlent directement',
-  'no-webrtc':
-    'Ce navigateur ne gère pas les connexions directes. Vérifie que l’adresse commence par https, et que le mode isolement n’est pas actif.',
-  'no-signaling':
-    'Service de mise en relation injoignable — vérifie ta connexion, ou le pare-feu du réseau.',
-  'no-datachannel':
-    'La connexion s’ouvre mais ne transporte rien. Mets ton navigateur à jour, ou essaie-en un autre.',
+  'no-webrtc': 'Ce navigateur ne gère pas les connexions directes.',
+  'no-signaling': 'Service de mise en relation injoignable.',
+  'no-channel': 'Le canal ne s’ouvre pas sur cet appareil.',
+  'no-data': 'Le canal s’ouvre mais ne transporte rien.',
 };

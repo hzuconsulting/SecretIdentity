@@ -248,11 +248,17 @@ lance ton propre PeerServer (voir *Réseau*).
 Soit le navigateur est trop ancien, soit le site n'est pas servi en contexte sécurisé.
 Vérifie que l'URL commence par `https://` — ou `http://localhost`.
 
-**Le bandeau dit « La connexion s'ouvre mais ne transporte rien »**
-Le navigateur ouvre bien un canal mais n'arrive pas à écrire dedans. C'est ce qui
-arrivait sur Safari avant la correction de D-59 ; si ça réapparaît, c'est le signe
-d'une régression de la sérialisation — le premier test de `protocol.test.ts` est là
-pour ça.
+**Le bandeau n'est pas vert : va voir `/diagnostic`**
+La page teste le transport en quatre étapes et dit laquelle échoue, avec l'état ICE et
+les types de candidats obtenus. C'est la seule information exploitable quand la panne est
+sur le téléphone de quelqu'un d'autre — un bouton copie le rapport entier.
+
+| Étape qui échoue | Ce que ça veut dire |
+|---|---|
+| WebRTC disponible | Navigateur trop ancien, contexte non sécurisé, ou mode isolement d'iOS |
+| Mise en relation | Le courtier ne répond pas : connexion ou pare-feu |
+| Ouverture du canal | Piste réseau (ICE). **La boucle locale peut mentir ici** : certains navigateurs refusent de se connecter à eux-mêmes tout en marchant entre deux appareils — tenter une vraie partie avant de conclure |
+| Passage d'un message | Le navigateur n'écrit pas sur le canal. C'est le cas Safari de D-59 ; s'il réapparaît, c'est une régression de la sérialisation, et le premier test de `protocol.test.ts` devrait l'avoir attrapée |
 
 **« Cette partie n'est plus ouverte »**
 L'hôte a fermé son onglet, ou le code a été mal recopié. Il faut recréer une partie :

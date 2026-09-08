@@ -18,7 +18,10 @@
  *    joueurs à jour serait pire qu'une page d'erreur.
  */
 
-const VERSION = 'identite-secrete-v1';
+// Incrémenté à chaque correctif qui doit absolument atteindre les appareils
+// déjà installés : `activate` supprime tout cache dont la clé ne commence pas
+// par cette valeur.
+const VERSION = 'identite-secrete-v2';
 const SHELL = `${VERSION}-shell`;
 
 self.addEventListener('install', (event) => {
