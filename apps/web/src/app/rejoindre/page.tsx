@@ -13,6 +13,7 @@ import {
 } from '@identite-secrete/shared';
 import { emitWithAck, getSocket } from '@/lib/socket';
 import { saveSession } from '@/lib/session';
+import { CODE_PARAM } from '@/components/game/GameRoute';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/Feedback';
 import { NicknameField } from '@/components/ui/NicknameField';
@@ -49,7 +50,7 @@ export default function JoinGamePage() {
     }
 
     saveSession(response.data);
-    router.push(`/game/${response.data.code}`);
+    router.push(`/game?${CODE_PARAM}=${response.data.code}`);
   }
 
   return (

@@ -12,6 +12,7 @@
     "dev:server": "npm run dev -w @identite-secrete/server",
     "dev:web": "npm run dev -w @identite-secrete/web",
     "build": "npm run build -w @identite-secrete/web && npm run build -w @identite-secrete/server",
+    "build:static": "npm run build:static -w @identite-secrete/web",
     "start:server": "npm run start -w @identite-secrete/server",
     "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p apps/server && tsc --noEmit -p apps/web",
     "test": "vitest run",

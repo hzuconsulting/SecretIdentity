@@ -128,16 +128,73 @@ Voir [`.env.example`](./.env.example), commenté.
 | `CLIENT_ORIGIN` | serveur | `http://localhost:3000` | Origines CORS autorisées, séparées par des virgules |
 | `NODE_ENV` | serveur | `development` | Niveau de log |
 | `NEXT_PUBLIC_SERVER_URL` | client | `http://localhost:4000` | URL du serveur Socket.IO, **inlinée au build** |
+| `NEXT_PUBLIC_BASE_PATH` | client | *(vide)* | Sous-dossier du site. `/nom-du-depot` sur GitHub Pages |
+| `NEXT_OUTPUT` | client | *(vide)* | `export` pour produire un site statique |
 
 ⚠️ `NEXT_PUBLIC_SERVER_URL` est figée au moment du `next build`. La changer sur Vercel
 impose de **redéployer**, pas seulement de redémarrer.
 
+## Application installable (PWA)
+
+Le client est une **application web installable**. Sur Android comme sur iOS, elle
+s'ajoute à l'écran d'accueil et s'ouvre en plein écran, sans barre d'adresse.
+
+- **Android / Chrome** : menu ⋮ → « Installer l'application ».
+- **iOS / Safari** : bouton Partager → « Sur l'écran d'accueil ».
+  Safari est le seul navigateur iOS qui sait le faire.
+
+Ce qui est en place : `manifest.webmanifest`, icônes 192/512 et « maskable », icône
+Apple, couleur de thème, `viewport-fit=cover` pour occuper l'écran sous l'encoche, et un
+service worker qui met en cache la coquille de l'application.
+
+**Le service worker ne touche jamais au trafic Socket.IO.** Une partie est un flux temps
+réel : la mettre en cache n'aurait aucun sens. Concrètement, l'accueil s'ouvre hors ligne,
+mais jouer demande évidemment le réseau.
+
 ## Déploiement
 
 Le serveur Socket.IO a besoin d'un **processus persistant** et d'un état en mémoire :
-il ne peut pas tourner en fonction serverless. D'où le déploiement en deux morceaux.
+il ne peut pas tourner en fonction serverless, ni sur un hébergement de fichiers
+statiques. **Le déploiement est donc toujours en deux morceaux**, quel que soit
+l'hébergeur choisi pour le client.
 
-### Client → Vercel
+| | Client | Serveur |
+|---|---|---|
+| Nature | Fichiers statiques | Processus Node persistant |
+| Hébergeurs | GitHub Pages, Vercel, Netlify | Railway, Fly, Render |
+| Coût typique | Gratuit | Gratuit à quelques euros |
+
+⚠ **Le serveur doit être en HTTPS.** Un site servi en `https://` ne peut pas ouvrir une
+connexion vers un serveur en clair : le navigateur bloque le contenu mixte, et la partie
+ne se connectera jamais. Les trois hébergeurs cités fournissent le certificat.
+
+### Client → GitHub Pages
+
+Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
+
+1. Dépose le serveur en premier (section suivante) et note son URL `https://…`.
+2. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
+3. **Settings → Secrets and variables → Actions → Variables → New variable** :
+   `SERVER_URL` = l'URL HTTPS du serveur.
+4. Pousse sur `main`. Le workflow vérifie les types, lance les 146 tests, construit le
+   site statique et le publie.
+5. Le site apparaît sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`.
+6. Reporte cette URL dans `CLIENT_ORIGIN` côté serveur, puis redémarre-le.
+
+Le workflow **échoue volontairement** si `SERVER_URL` est vide : sans elle, le client
+tenterait de joindre `localhost` depuis le téléphone des joueurs, ce qui donne une page
+qui ne se connecte jamais sans dire pourquoi.
+
+Pour construire en local et vérifier le résultat :
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/nom-du-depot \
+NEXT_PUBLIC_SERVER_URL=https://mon-serveur.up.railway.app \
+npm run build:static
+npx serve apps/web/out   # ou tout autre serveur de fichiers
+```
+
+### Client → Vercel (alternative)
 
 1. Importe le dépôt sur Vercel.
 2. **Root Directory** : `apps/web`.
@@ -147,6 +204,8 @@ il ne peut pas tourner en fonction serverless. D'où le déploiement en deux mor
 5. Variable d'environnement : `NEXT_PUBLIC_SERVER_URL` = l'URL publique du serveur,
    en `https://`.
 6. Déploie, puis reporte l'URL Vercel obtenue dans `CLIENT_ORIGIN` côté serveur.
+
+Sur Vercel, laisse `NEXT_PUBLIC_BASE_PATH` vide : le site est à la racine du domaine.
 
 ### Serveur → Railway (ou Fly / Render)
 
@@ -174,7 +233,22 @@ nombre de parties en cours et la taille du catalogue.
 
 **Le bandeau reste rose (« Serveur injoignable »)**
 Le serveur ne tourne pas, ou `NEXT_PUBLIC_SERVER_URL` pointe ailleurs. Teste
-`curl http://localhost:4000/health`.
+`curl http://localhost:4000/health`, ou l'URL publique en production.
+
+**Le site s'affiche mais ne se connecte jamais, en HTTPS**
+Presque toujours du contenu mixte : le site est en `https://` et
+`NEXT_PUBLIC_SERVER_URL` en `http://`. La console du navigateur le dit
+explicitement. Corrige la variable et **relance le build** — elle est inlinée au
+moment de la compilation, redémarrer ne suffit pas.
+
+**Le site s'affiche sans aucun style sur GitHub Pages**
+Le `NEXT_PUBLIC_BASE_PATH` ne correspond pas au nom du dépôt. Le workflow le calcule
+automatiquement ; en build manuel, il faut le passer à la main.
+
+**« Installer l'application » n'apparaît pas**
+L'installation exige HTTPS (ou `localhost`), un manifeste valide et un service worker
+enregistré. En développement le service worker est volontairement désactivé : teste
+l'installation sur le site déployé.
 
 **Erreur CORS dans la console du navigateur**
 L'origine du client n'est pas dans `CLIENT_ORIGIN`. En production, l'URL doit être

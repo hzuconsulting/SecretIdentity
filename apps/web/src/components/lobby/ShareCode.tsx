@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { BASE_PATH } from '@/lib/config';
+import { CODE_PARAM } from '@/components/game/GameRoute';
 import { Button } from '@/components/ui/Button';
 
 interface ShareCodeProps {
@@ -19,7 +21,12 @@ type Feedback = 'idle' | 'copied' | 'failed';
 export function ShareCode({ code }: ShareCodeProps) {
   const [feedback, setFeedback] = useState<Feedback>('idle');
 
-  const gameUrl = typeof window === 'undefined' ? '' : `${window.location.origin}/game/${code}`;
+  // `window.location.origin` ne contient pas le préfixe du site : sur GitHub
+  // Pages, il faut l'ajouter, sinon le lien partagé tombe à côté.
+  const gameUrl =
+    typeof window === 'undefined'
+      ? ''
+      : `${window.location.origin}${BASE_PATH}/game?${CODE_PARAM}=${code}`;
 
   async function copyCode() {
     try {
