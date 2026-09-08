@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Pile de polices arrondies : personnalité de jeu, zéro chargement réseau. */
+    --font-display: ui-rounded, 'SF Pro Rounded', 'Segoe UI Rounded', 'Nunito',
+      'Trebuchet MS', system-ui, sans-serif;
+    --font-body: ui-rounded, 'SF Pro Rounded', 'Segoe UI Rounded', 'Nunito',
+      system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-lilac text-ink font-body antialiased;
+    /* Halo coloré discret : le fond n'est jamais tout à fait plat. */
+    background-image:
+      radial-gradient(60rem 40rem at 15% -10%, rgba(91, 61, 245, 0.16), transparent 60%),
+      radial-gradient(50rem 35rem at 95% 10%, rgba(255, 61, 139, 0.14), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100dvh;
+  }
+
+  /* Focus toujours visible, y compris sur fond coloré. */
+  :focus-visible {
+    @apply outline-none ring-4 ring-ink/25 ring-offset-2 ring-offset-lilac;
+  }
+
+  ::selection {
+    @apply bg-violet text-white;
+  }
+}
+
+@layer components {
+  /* Ombre portée « épaisseur de jeton » sur le texte des titres. */
+  .text-stroke-ink {
+    text-shadow: 0 3px 0 rgba(27, 19, 56, 0.14);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,198 @@
+import { z } from 'zod';
+import {
+  CODE_LENGTH,
+  DIFFICULTY_OPTIONS,
+  HAND_SIZE_OPTIONS,
+  MAX_CLUES_OPTIONS,
+  MAX_NICKNAME_LENGTH,
+  MIN_NICKNAME_LENGTH,
+  ROUNDS_OPTIONS,
+  TIMER_OPTIONS,
+} from './constants';
+import { normalizeGameCode } from './gameCode';
+import type { Ack, GameError, GameErrorCode, PlayerView, Phase } from './types';
+
+// ─────────────────────────────────────────────────────────────
+//  Noms d'événements (jamais de chaîne magique ailleurs)
+// ─────────────────────────────────────────────────────────────
+
+export const CLIENT_EVENTS = {
+  createGame: 'game:create',
+  joinGame: 'game:join',
+  rejoinGame: 'game:rejoin',
+  updateSettings: 'settings:update',
+  startGame: 'game:start',
+  submitClues: 'clues:submit',
+  submitGuesses: 'guesses:submit',
+  nextRound: 'round:next',
+  replay: 'game:replay',
+  leave: 'game:leave',
+  ping: 'time:ping',
+} as const;
+
+export const SERVER_EVENTS = {
+  /** Vue joueur complète — la seule source de vérité côté client. */
+  stateUpdate: 'state:update',
+  phaseChanged: 'phase:changed',
+  error: 'game:error',
+  toast: 'game:toast',
+} as const;
+
+// ─────────────────────────────────────────────────────────────
+//  Schémas Zod — validation de TOUS les payloads entrants
+// ─────────────────────────────────────────────────────────────
+
+export const nicknameSchema = z
+  .string()
+  .trim()
+  .min(MIN_NICKNAME_LENGTH, 'Choisis un pseudo.')
+  .max(MAX_NICKNAME_LENGTH, `${MAX_NICKNAME_LENGTH} caractères maximum.`);
+
+export const gameCodeSchema = z
+  .string()
+  .transform(normalizeGameCode)
+  .refine((code) => code.length === CODE_LENGTH, 'Un code contient 5 caractères.');
+
+export const createGameSchema = z.object({
+  nickname: nicknameSchema,
+});
+
+export const joinGameSchema = z.object({
+  code: gameCodeSchema,
+  nickname: nicknameSchema,
+});
+
+export const rejoinGameSchema = z.object({
+  sessionToken: z.string().min(10).max(200),
+});
+
+const timerSchema = z.union([
+  z.literal(30),
+  z.literal(45),
+  z.literal(60),
+  z.literal(90),
+  z.null(),
+]);
+
+export const settingsSchema = z.object({
+  rounds: z.union([z.literal(3), z.literal(5), z.literal(8), z.literal(10)]),
+  clueSeconds: timerSchema,
+  guessSeconds: timerSchema,
+  handSize: z.union([z.literal(8), z.literal(10), z.literal(12)]),
+  maxClues: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+  difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
+});
+
+export const updateSettingsSchema = settingsSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'Aucun paramètre à modifier.',
+);
+
+export const startGameSchema = z.object({});
+
+export const submitCluesSchema = z.object({
+  iconIds: z.array(z.string().min(1).max(64)).min(1).max(8),
+});
+
+export const submitGuessesSchema = z.object({
+  guesses: z.record(z.string().min(1).max(4), z.string().min(1).max(64)),
+});
+
+export const nextRoundSchema = z.object({});
+export const replaySchema = z.object({});
+export const pingSchema = z.object({ clientTime: z.number() });
+
+export type CreateGamePayload = z.infer<typeof createGameSchema>;
+export type JoinGamePayload = z.infer<typeof joinGameSchema>;
+export type RejoinGamePayload = z.infer<typeof rejoinGameSchema>;
+export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>;
+export type SubmitCluesPayload = z.infer<typeof submitCluesSchema>;
+export type SubmitGuessesPayload = z.infer<typeof submitGuessesSchema>;
+export type PingPayload = z.infer<typeof pingSchema>;
+
+/** Sanity check : les options du salon et les schémas Zod ne divergent pas. */
+export const SETTINGS_OPTIONS = {
+  rounds: ROUNDS_OPTIONS,
+  clueSeconds: TIMER_OPTIONS,
+  guessSeconds: TIMER_OPTIONS,
+  handSize: HAND_SIZE_OPTIONS,
+  maxClues: MAX_CLUES_OPTIONS,
+  difficulty: DIFFICULTY_OPTIONS,
+} as const;
+
+// ─────────────────────────────────────────────────────────────
+//  Payloads serveur → client
+// ─────────────────────────────────────────────────────────────
+
+export interface SessionPayload {
+  sessionToken: string;
+  playerId: string;
+  code: string;
+}
+
+export interface PhaseChangedPayload {
+  phase: Phase;
+  roundNumber: number;
+  phaseEndsAt: number | null;
+  serverTime: number;
+}
+
+export interface PongPayload {
+  clientTime: number;
+  serverTime: number;
+}
+
+export interface ToastPayload {
+  message: string;
+  tone: 'info' | 'success' | 'warning';
+}
+
+export type StateUpdatePayload = PlayerView;
+
+// ─────────────────────────────────────────────────────────────
+//  Erreurs
+// ─────────────────────────────────────────────────────────────
+
+const ERROR_MESSAGES: Record<GameErrorCode, string> = {
+  GAME_NOT_FOUND: "Ce code ne correspond à aucune partie.",
+  GAME_ALREADY_STARTED: 'Cette partie a déjà commencé.',
+  GAME_FULL: 'Ce salon est complet.',
+  NICKNAME_TAKEN: 'Ce pseudo est déjà pris dans ce salon.',
+  INVALID_NICKNAME: 'Ce pseudo ne convient pas.',
+  INVALID_CODE: 'Ce code est invalide.',
+  NOT_HOST: "Seul l'hôte peut faire ça.",
+  WRONG_PHASE: "Ce n'est pas le moment de faire ça.",
+  NOT_ENOUGH_PLAYERS: 'Il faut au moins 3 joueurs pour lancer.',
+  INVALID_PAYLOAD: 'Requête invalide.',
+  ICON_NOT_IN_HAND: "Cette icône n'est pas dans ta main.",
+  TOO_MANY_CLUES: 'Tu as sélectionné trop d’indices.',
+  NOT_ENOUGH_CLUES: 'Sélectionne au moins un indice.',
+  INVALID_GUESS: 'Ces réponses ne sont pas valides.',
+  TOO_LATE: 'Trop tard !',
+  SESSION_NOT_FOUND: 'Ta session a expiré.',
+  RATE_LIMITED: 'Trop d’actions d’un coup. Attends une seconde.',
+  GAME_PAUSED: 'La partie est en pause, il n’y a plus assez de joueurs.',
+  INTERNAL_ERROR: 'Une erreur est survenue.',
+};
+
+export function gameError(
+  code: GameErrorCode,
+  overrides?: Partial<Omit<GameError, 'code'>>,
+): GameError {
+  return {
+    code,
+    message: overrides?.message ?? ERROR_MESSAGES[code],
+    ...(overrides?.suggestion ? { suggestion: overrides.suggestion } : {}),
+  };
+}
+
+export function ok<T>(data: T): Ack<T> {
+  return { ok: true, data };
+}
+
+export function fail<T = never>(
+  code: GameErrorCode,
+  overrides?: Partial<Omit<GameError, 'code'>>,
+): Ack<T> {
+  return { ok: false, error: gameError(code, overrides) };
+}
