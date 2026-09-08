@@ -76,12 +76,14 @@ describe('aller-retour', () => {
   });
 
   it('restitue un acquittement, succès comme échec', () => {
-    const succes = { t: 'res' as const, id: 7, ack: { ok: true, data: null } };
+    // `as const` n'est pas cosmétique : sans lui `ok` s'élargit en `boolean` et
+    // ne correspond plus à l'union discriminée de `Ack`.
+    const succes = { t: 'res', id: 7, ack: { ok: true, data: null } } as const;
     const echec = {
-      t: 'res' as const,
+      t: 'res',
       id: 8,
       ack: { ok: false, error: { code: 'NOT_HOST', message: 'Seul l’hôte peut faire ça.' } },
-    };
+    } as const;
 
     expect(parseHostMessage(encodeMessage(succes))).toEqual(succes);
     expect(parseHostMessage(encodeMessage(echec))).toEqual(echec);
