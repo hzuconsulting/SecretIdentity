@@ -15,7 +15,7 @@ import { peerIdForCode } from '@/lib/config';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { PeerUnavailableError, openPeer } from './peer';
 import { clearHostedGame, loadHostedGame, saveHostedGame } from './hostStorage';
-import { parseClientMessage, type HostMessage } from './protocol';
+import { encodeMessage, parseClientMessage, type HostMessage } from './protocol';
 
 /**
  * Le nœud qui héberge la partie.
@@ -233,10 +233,13 @@ export class HostNode implements GameNode {
 
   private send(connection: DataConnection, message: HostMessage): void {
     try {
-      connection.send(message);
-    } catch {
-      // Canal fermé entre-temps : la fermeture arrivera par son propre
-      // événement, il n'y a rien à faire de plus ici.
+      connection.send(encodeMessage(message));
+    } catch (cause) {
+      // Deux cas sans gravité pour la partie : le canal s'est fermé entre-temps
+      // — sa fermeture arrivera par son propre événement — ou le message
+      // dépassait le plafond, ce qui doit se voir dans la console plutôt que de
+      // disparaître.
+      console.warn('Envoi impossible sur le canal invité', cause);
     }
   }
 

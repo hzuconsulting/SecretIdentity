@@ -12,7 +12,7 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 155 tests
+### Couverture — 165 tests
 
 **`scoring.test.ts`** — le calcul de score du §3.2
 - 3 joueurs : personne ne trouve · tout le monde trouve · réponses partielles
@@ -166,6 +166,11 @@ téléphone.
 ### 2.2 L'accueil
 
 Ouvre http://localhost:3000.
+
+Le bandeau du bas n'est pas décoratif : il ouvre deux pairs sur l'appareil et fait
+réellement passer un message par un canal WebRTC, avec la sérialisation de production.
+**Le vérifier sur chaque nouvel appareil avant de jouer** — c'est trois secondes, et ça
+distingue un navigateur incapable d'un ami qui a fermé son onglet.
 
 | À vérifier | Attendu |
 |---|---|

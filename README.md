@@ -70,7 +70,7 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (155 tests) |
+| `npm test` | Suite Vitest complète (165 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
 | `npm run build` | Build de production |
@@ -204,7 +204,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 155 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 165 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.
@@ -247,6 +247,12 @@ lance ton propre PeerServer (voir *Réseau*).
 **Le bandeau dit « Ce navigateur ne gère pas les connexions directes »**
 Soit le navigateur est trop ancien, soit le site n'est pas servi en contexte sécurisé.
 Vérifie que l'URL commence par `https://` — ou `http://localhost`.
+
+**Le bandeau dit « La connexion s'ouvre mais ne transporte rien »**
+Le navigateur ouvre bien un canal mais n'arrive pas à écrire dedans. C'est ce qui
+arrivait sur Safari avant la correction de D-59 ; si ça réapparaît, c'est le signe
+d'une régression de la sérialisation — le premier test de `protocol.test.ts` est là
+pour ça.
 
 **« Cette partie n'est plus ouverte »**
 L'hôte a fermé son onglet, ou le code a été mal recopié. Il faut recréer une partie :

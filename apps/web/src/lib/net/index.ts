@@ -11,7 +11,6 @@ import { hasHostedGame } from './hostStorage';
 import type { GameNode } from './node';
 
 export type { GameNode, NodeStatus } from './node';
-export { supportsWebRtc } from './peer';
 
 /**
  * Le nœud courant de l'onglet.

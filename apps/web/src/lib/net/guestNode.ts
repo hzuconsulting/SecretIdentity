@@ -6,7 +6,7 @@ import { gameError, type Ack } from '@identite-secrete/shared';
 import { REQUEST_TIMEOUT_MS, peerIdForCode } from '@/lib/config';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { openPeer } from './peer';
-import { parseHostMessage } from './protocol';
+import { encodeMessage, parseHostMessage } from './protocol';
 
 /**
  * Le nœud d'un joueur invité.
@@ -101,8 +101,9 @@ export class GuestNode implements GameNode {
       });
 
       try {
-        connection.send({ t: 'req', id, event, payload });
-      } catch {
+        connection.send(encodeMessage({ t: 'req', id, event, payload }));
+      } catch (cause) {
+        console.warn('Envoi impossible vers l’hôte', cause);
         clearTimeout(timer);
         this.pending.delete(id);
         resolve(offline<T>());
@@ -150,9 +151,13 @@ export class GuestNode implements GameNode {
     return new Promise<void>((resolve, reject) => {
       const connection = this.peer.connect(peerIdForCode(this.code), {
         reliable: true,
-        // Le moteur échange des objets : le sérialiseur binaire de PeerJS les
-        // gère nativement, sans passer par JSON.
-        serialization: 'binary',
+        // `raw` transmet la valeur telle quelle : on lui donne une chaîne, une
+        // chaîne part sur le canal. Les modes `binary` et `json` de PeerJS
+        // envoient tous deux un `Uint8Array`, que Safari ne parvient pas à
+        // émettre — voir l'en-tête de `protocol.ts`.
+        //
+        // L'hôte reprend ce réglage depuis l'offre : il n'a rien à déclarer.
+        serialization: 'raw',
       });
 
       const timeout = setTimeout(() => {

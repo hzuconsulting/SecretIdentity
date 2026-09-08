@@ -825,14 +825,60 @@ Le cadre visé est une pièce et un Wi-Fi commun, où les STUN publics suffisent
 configuration existe (`NEXT_PUBLIC_ICE_SERVERS`) pour brancher un relais sans toucher au
 code, et le README dit franchement quand il devient nécessaire.
 
+### D-59 · On sérialise les messages nous-mêmes, en chaînes, à cause de Safari
+
+Symptôme : sur iPhone, plus rien ne marchait — ni rejoindre la partie d'un autre,
+ni laisser les autres rejoindre la sienne. Le canal s'ouvrait pourtant, et aucune
+erreur n'apparaissait nulle part.
+
+Cause : **Safari ne parvient pas à émettre de binaire** sur un canal de données
+PeerJS. Il en reçoit sans problème, ce qui explique la forme exacte de la panne —
+un iPhone invité n'arrivait pas à envoyer sa demande de jointure, et un iPhone
+hôte n'arrivait pas à répondre. Deux directions cassées, une seule cause.
+
+Le piège est que le remède évident n'en est pas un. On lit partout « utilise
+`serialization: 'json'` pour Safari », mais dans PeerJS 1.5.5 le sérialiseur JSON
+fait `new TextEncoder().encode(JSON.stringify(data))` : il envoie **aussi** un
+`Uint8Array`. Seul le mode `raw` transmet la valeur telle quelle.
+
+On utilise donc `raw`, et `protocol.ts` fait lui-même le `JSON.stringify` /
+`JSON.parse`. C'est trois lignes de plus et ça retire une dépendance à une
+mécanique qu'on ne contrôlait pas.
+
+**Coût.** `raw` ne découpe pas les gros messages ; un envoi trop volumineux ferait
+échouer `send()`, et PeerJS ferme le canal sur cette erreur. D'où un plafond
+explicite qui lève plutôt que de laisser tomber la connexion. L'ordre de grandeur
+réel est très en dessous : une vue de jeu à huit joueurs pèse quelques kilo-octets.
+
+**Ce qui garde la leçon.** `protocol.test.ts` vérifie en premier que ce qui part
+est bien une chaîne. Le jour où quelqu'un « simplifiera » en laissant PeerJS
+sérialiser, iPhone cessera silencieusement de fonctionner — et ce test le dira.
+
+### D-60 · L'accueil teste le transport pour de vrai, pas seulement la signalisation
+
+Le voyant d'accueil ne vérifiait que la joignabilité du courtier. Il était vert
+sur l'iPhone pendant que le jeu était entièrement cassé : il ne mesurait pas la
+bonne chose.
+
+Il ouvre maintenant deux pairs sur l'appareil, les connecte l'un à l'autre et fait
+passer un vrai message par un vrai canal, avec la sérialisation de production.
+C'est plus coûteux — deux connexions au courtier, détruites aussitôt — et ça vaut
+largement son prix : le bug de Safari se serait annoncé en trois secondes, sur
+l'appareil concerné, au lieu de coûter un aller-retour de diagnostic à l'aveugle.
+
+**Ce qu'il ne prouve pas.** Une boucle locale ne traverse aucun NAT : il couvre le
+navigateur et la mise en relation, jamais la topologie du réseau. Deux joueurs sur
+deux réseaux mobiles peuvent toujours échouer avec un voyant vert (D-58).
+
 ---
 
 ## Points laissés ouverts
 
-- **Le pair à pair n'a pas encore été éprouvé sur de vrais téléphones.** Les 155 tests
-  couvrent le moteur, et le `next build` statique passe, mais l'établissement des canaux
-  WebRTC ne peut se vérifier que dans de vrais navigateurs, sur un vrai réseau. C'est la
-  première chose à faire — la procédure est dans `TESTING.md` §2.
+- **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
+  Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
+  165 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
+  à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
   l'absence de serveur (D-50). Une migration du moteur vers un autre joueur serait
   possible — l'état est déjà sérialisable (D-54) — mais elle demande de transférer cet
@@ -841,7 +887,7 @@ code, et le README dit franchement quand il devient nécessaire.
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 155 tests couvrent le moteur et la logique partagée ;
+- **Aucun test d'interface.** Les 165 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.
