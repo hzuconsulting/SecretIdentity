@@ -6,12 +6,13 @@ import { useState } from 'react';
 import {
   CLIENT_EVENTS,
   CODE_LENGTH,
+  gameError,
   isValidGameCode,
   normalizeGameCode,
   type GameError,
   type SessionPayload,
 } from '@identite-secrete/shared';
-import { emitWithAck, getSocket } from '@/lib/socket';
+import { getNode } from '@/lib/net';
 import { saveSession } from '@/lib/session';
 import { CODE_PARAM } from '@/components/game/GameRoute';
 import { Button } from '@/components/ui/Button';
@@ -35,11 +36,28 @@ export default function JoinGamePage() {
     setError(null);
 
     const normalized = normalizeGameCode(code);
-    const response = await emitWithAck<SessionPayload>(
-      getSocket(),
-      CLIENT_EVENTS.joinGame,
-      { code: normalized, nickname: nickname.trim() },
-    );
+
+    // Ouvrir le canal, c'est déjà chercher la partie : le code est
+    // l'identifiant de l'hôte auprès du service de mise en relation. Un code
+    // inconnu échoue ici, avant même qu'on parle de pseudo.
+    let node;
+    try {
+      node = await getNode(normalized);
+    } catch {
+      setError(
+        gameError('GAME_NOT_FOUND', {
+          message:
+            'Aucune partie ouverte sous ce code. Vérifie-le, et que l’hôte a bien gardé son onglet ouvert.',
+        }),
+      );
+      setBusy(false);
+      return;
+    }
+
+    const response = await node.emit<SessionPayload>(CLIENT_EVENTS.joinGame, {
+      code: normalized,
+      nickname: nickname.trim(),
+    });
 
     if (!response.ok) {
       setError(response.error);

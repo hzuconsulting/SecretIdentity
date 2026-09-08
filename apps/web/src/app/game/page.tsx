@@ -11,7 +11,7 @@ export const metadata: Metadata = {
  *
  * Le code est passé en paramètre de requête plutôt qu'en segment d'URL, parce
  * que le site est exporté en statique : un segment dynamique demanderait au
- * serveur de générer une page par code, ce qu'un hébergement de fichiers ne
+ * site de générer une page par code, ce qu'un hébergement de fichiers ne
  * sait pas faire. Le paramètre, lui, est lu par le navigateur.
  *
  * `Suspense` est obligatoire : la lecture des paramètres d'URL suspend le rendu.

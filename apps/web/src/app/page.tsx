@@ -1,6 +1,6 @@
 import { ICONS, IDENTITIES, MAX_PLAYERS, MIN_PLAYERS } from '@identite-secrete/shared';
 import { HomeHero } from '@/components/HomeHero';
-import { ServerStatus } from '@/components/ServerStatus';
+import { ConnectionCheck } from '@/components/ConnectionCheck';
 import { ButtonLink } from '@/components/ui/Button';
 
 export default function HomePage() {
@@ -30,7 +30,7 @@ export default function HomePage() {
       </nav>
 
       <footer className="mt-auto flex flex-col gap-3">
-        <ServerStatus />
+        <ConnectionCheck />
         <p className="text-center text-xs text-muted">
           {MIN_PLAYERS} à {MAX_PLAYERS} joueurs · {IDENTITIES.length} identités ·{' '}
           {ICONS.length} icônes

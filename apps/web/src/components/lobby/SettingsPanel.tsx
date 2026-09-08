@@ -22,7 +22,7 @@ interface SettingsPanelProps {
  * Paramètres de partie.
  *
  * L'hôte modifie, les autres lisent. Aucun état local des valeurs : on affiche
- * toujours ce que le serveur a renvoyé, et un clic déclenche un aller-retour.
+ * toujours ce que le moteur a renvoyé, et un clic déclenche un aller-retour.
  * C'est ce qui garantit que les six téléphones montrent la même chose.
  */
 export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProps) {

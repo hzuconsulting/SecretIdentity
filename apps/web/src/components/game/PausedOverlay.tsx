@@ -7,7 +7,7 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
  * Partie en pause.
  *
  * Elle recouvre l'écran de jeu entièrement, et c'est voulu : tant qu'il manque
- * du monde, rien n'est cliquable et le décompte est gelé côté serveur. Laisser
+ * du monde, rien n'est cliquable et le décompte est gelé par le moteur. Laisser
  * l'écran de phase visible derrière donnerait l'impression qu'on peut encore
  * jouer.
  *

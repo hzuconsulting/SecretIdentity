@@ -16,7 +16,7 @@ type Feedback = 'idle' | 'copied' | 'failed';
  *
  * Il est fait pour être lu à voix haute dans une pièce bruyante : d'où
  * l'espacement entre les caractères, la taille, et l'alphabet sans 0/O ni 1/I
- * côté serveur.
+ * du générateur de codes.
  */
 export function ShareCode({ code }: ShareCodeProps) {
   const [feedback, setFeedback] = useState<Feedback>('idle');

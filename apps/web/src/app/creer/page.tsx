@@ -3,13 +3,8 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
-import {
-  CLIENT_EVENTS,
-  MIN_PLAYERS,
-  type GameError,
-  type SessionPayload,
-} from '@identite-secrete/shared';
-import { emitWithAck, getSocket } from '@/lib/socket';
+import { MIN_PLAYERS, gameError, type GameError } from '@identite-secrete/shared';
+import { createHostedGame } from '@/lib/net';
 import { saveSession } from '@/lib/session';
 import { CODE_PARAM } from '@/components/game/GameRoute';
 import { Button } from '@/components/ui/Button';
@@ -22,28 +17,36 @@ export default function CreateGamePage() {
   const [error, setError] = useState<GameError | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Crée la partie **dans cet onglet**.
+   *
+   * C'est ici que le téléphone de l'hôte devient le moteur : il réserve un code
+   * auprès du service de mise en relation, puis fait tourner la partie jusqu'à
+   * la fin. Tant que cet onglet reste ouvert, la partie vit.
+   */
   async function create() {
-    // Le bouton est désactivé pendant l'aller-retour : un double clic ne peut
-    // pas créer deux parties.
+    // Le bouton est désactivé pendant l'opération : un double clic ne peut pas
+    // créer deux parties.
     if (busy) return;
 
     setBusy(true);
     setError(null);
 
-    const response = await emitWithAck<SessionPayload>(
-      getSocket(),
-      CLIENT_EVENTS.createGame,
-      { nickname: nickname.trim() },
-    );
-
-    if (!response.ok) {
-      setError(response.error);
+    try {
+      const session = await createHostedGame(nickname.trim());
+      saveSession(session);
+      router.push(`/game?${CODE_PARAM}=${session.code}`);
+    } catch (cause) {
+      setError(
+        gameError('INTERNAL_ERROR', {
+          message:
+            cause instanceof Error && cause.message
+              ? cause.message
+              : 'Impossible d’ouvrir la partie. Vérifie ta connexion et réessaie.',
+        }),
+      );
       setBusy(false);
-      return;
     }
-
-    saveSession(response.data);
-    router.push(`/game?${CODE_PARAM}=${response.data.code}`);
   }
 
   return (
@@ -60,7 +63,8 @@ export default function CreateGamePage() {
         </h1>
         <p className="mt-2 text-base font-semibold text-muted">
           Tu seras l’hôte. Tu recevras un code à envoyer à tes amis — il faut au moins{' '}
-          {MIN_PLAYERS} joueurs pour lancer.
+          {MIN_PLAYERS} joueurs pour lancer. <strong className="text-ink">Garde cet onglet
+          ouvert</strong> : la partie tourne sur ton téléphone.
         </p>
       </div>
 
@@ -72,7 +76,7 @@ export default function CreateGamePage() {
         onClick={() => void create()}
         disabled={busy || nickname.trim().length === 0}
       >
-        {busy ? 'Création…' : 'Créer la partie'}
+        {busy ? 'Ouverture du salon…' : 'Créer la partie'}
       </Button>
     </main>
   );

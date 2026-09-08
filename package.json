@@ -2,25 +2,22 @@
   "name": "identite-secrete",
   "version": "0.1.0",
   "private": true,
-  "description": "Identité Secrète — jeu de soirée multijoueur temps réel, mobile-first",
+  "description": "Identité Secrète — jeu de soirée multijoueur temps réel, mobile-first, 100 % statique et pair à pair",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n serveur,client -c magenta,cyan \"npm run dev -w @identite-secrete/server\" \"npm run dev -w @identite-secrete/web\"",
-    "dev:server": "npm run dev -w @identite-secrete/server",
-    "dev:web": "npm run dev -w @identite-secrete/web",
-    "build": "npm run build -w @identite-secrete/web && npm run build -w @identite-secrete/server",
+    "dev": "npm run dev -w @identite-secrete/web",
+    "build": "npm run build -w @identite-secrete/web",
     "build:static": "npm run build:static -w @identite-secrete/web",
-    "start:server": "npm run start -w @identite-secrete/server",
-    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p apps/server && tsc --noEmit -p apps/web",
+    "start": "npm run start -w @identite-secrete/web",
+    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/engine && tsc --noEmit -p apps/web",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "concurrently": "^9.1.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },

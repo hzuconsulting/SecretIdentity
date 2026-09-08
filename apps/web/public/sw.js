@@ -8,11 +8,14 @@
  * Ce qu'il fait, et surtout ce qu'il ne fait pas :
  *  - il met en cache la coquille de l'application, pour que l'écran d'accueil
  *    s'ouvre instantanément et hors ligne ;
- *  - il ne touche **jamais** au trafic Socket.IO. Une partie est un flux temps
- *    réel : la mettre en cache n'aurait aucun sens et casserait le jeu ;
+ *  - il ne touche **jamais** au trafic de jeu. Les parties passent par WebRTC,
+ *    qui ne traverse pas `fetch` — il n'y a donc rien à exclure, et rien à
+ *    mettre en cache : ce sont des flux temps réel entre deux téléphones ;
+ *  - il laisse passer le service de mise en relation, servi par une autre
+ *    origine, sans y toucher ;
  *  - il sert le réseau en priorité pour les pages, et ne retombe sur le cache
- *    que si le réseau échoue. Une version périmée de l'interface face à un
- *    serveur à jour serait pire qu'une page d'erreur.
+ *    que si le réseau échoue. Une version périmée de l'interface face à des
+ *    joueurs à jour serait pire qu'une page d'erreur.
  */
 
 const VERSION = 'identite-secrete-v1';
@@ -50,10 +53,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Tout ce qui n'est pas notre origine — au premier chef le serveur de jeu —
-  // passe sans être touché.
+  // Tout ce qui n'est pas notre origine — au premier chef le service de mise en
+  // relation — passe sans être touché.
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.includes('/socket.io/')) return;
 
   // Pages : réseau d'abord, cache en secours.
   if (request.mode === 'navigate') {

@@ -9,10 +9,10 @@ Deux choses ici : la suite automatisée, et le scénario manuel à plusieurs app
 ```bash
 npm test            # tout
 npm run test:watch  # en surveillance pendant le développement
-npm run typecheck   # tsc --noEmit sur shared, serveur et client
+npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 146 tests
+### Couverture — 155 tests
 
 **`scoring.test.ts`** — le calcul de score du §3.2
 - 3 joueurs : personne ne trouve · tout le monde trouve · réponses partielles
@@ -43,8 +43,10 @@ npm run typecheck   # tsc --noEmit sur shared, serveur et client
 - sélection d'indices vide refusée
 - décomptes, couleurs d'avatar stables, suggestion de pseudo (`Sarah` → `Sarah2`)
 
-**`lobby.test.ts`** — intégration, avec de **vrais** clients Socket.IO sur un vrai
-serveur. Rien n'est simulé ; seules les périodes de grâce sont raccourcies (120 ms et
+**`lobby.test.ts`** — intégration, avec de vrais clients parlant à un vrai `GameHost`
+par un canal en mémoire. Le transport est le seul élément remplacé : les règles, les
+phases et les minuteurs sont ceux de production. Seules les périodes de grâce sont
+raccourcies (120 ms et
 80 ms au lieu de 60 s et 30 s), injectées par `createGameServer`.
 
 - *création* : code au bon format, jeton de session, vue immédiate au créateur qui est
@@ -53,7 +55,7 @@ serveur. Rien n'est simulé ; seules les périodes de grâce sont raccourcies (1
   minuscules et avec des espaces, `GAME_NOT_FOUND`, `NICKNAME_TAKEN` avec suggestion,
   `GAME_FULL` au neuvième joueur
 - *paramètres* : rediffusion à tous, valeurs non touchées préservées, `NOT_HOST` pour un
-  invité (et l'état serveur reste inchangé), valeur hors options refusée
+  invité (et l'état du moteur reste inchangé), valeur hors options refusée
 - *déconnexion* : joueur marqué déconnecté sans être retiré, session restaurée à
   l'identique par jeton, retrait effectif après la période de grâce, retrait **annulé**
   si le joueur revient à temps, jeton inconnu refusé, partie supprimée quand le dernier
@@ -63,13 +65,13 @@ serveur. Rien n'est simulé ; seules les périodes de grâce sont raccourcies (1
   ancien (un joueur plus ancien mais déconnecté est sauté)
 - *confidentialité* : le `sessionToken` d'un joueur n'apparaît dans **aucun** payload reçu
   par un autre (le client de test capture tout via `onAny`, pas seulement les événements
-  attendus) ; aucune vue ne contient `sessionToken`, `labelMap`, `socketId` ni
+  attendus) ; aucune vue ne contient `sessionToken`, `labelMap`, `connectionId` ni
   `usedIdentityIds` ; un joueur public n'expose exactement que `id`, `nickname`, `score`,
   `connected`, `isHost`
 - *robustesse* : action sans session refusée proprement, double départ idempotent,
   payload malformé ignoré sans fermer la connexion
 
-**`phases.test.ts`** — intégration, machine à états. Le serveur de test applique un
+**`phases.test.ts`** — intégration, machine à états. Le nœud de test applique un
 facteur `timeScale` de 0,01 à **toutes** les durées de phase : une phase réglée sur 60 s
 y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 
@@ -78,7 +80,7 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 - *attribution* : identités distinctes pour 4 joueurs, mains à la bonne taille et sans
   doublon, étiquettes `A`–`D` distinctes, aucune identité réutilisée d'une manche à l'autre
 - *transitions* : `IDENTITY_REVEAL → CLUE_SELECTION` automatique et annoncée dans cet
-  ordre, échéance cohérente avec l'horloge serveur, **échéance identique pour tous les
+  ordre, échéance cohérente avec l'horloge de l'hôte, **échéance identique pour tous les
   joueurs**, pas d'échéance au salon, `round:next` par l'hôte depuis le classement,
   `round:next` refusé hors phase et pour un non-hôte, partie complète de 3 manches
   jusqu'à `FINAL_RESULTS` avec classement et statistiques
@@ -98,7 +100,7 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
   attendre le minuteur
 - *anti-triche* : icône absente de la main refusée, icône **piochée dans la main d'un
   autre joueur** refusée, dépassement du maximum refusé, sélection vide refusée, doublon
-  refusé, et surtout : **une validation qui échoue n'écrit rien** dans l'état serveur
+  refusé, et surtout : **une validation qui échoue n'écrit rien** dans l'état du moteur
 - *idempotence* : deux soumissions identiques (ordre inversé) réussissent sans effet de
   bord ; changer d'avis après validation est refusé ; une soumission arrivée après la
   phase renvoie `TOO_LATE` avec « Trop tard ! »
@@ -133,7 +135,7 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 - *joueur parti en cours de manche* : la manche se termine et sa série est révélée sous
   « Joueur parti » ; il est exclu des attributions de la manche suivante
 - *limitation de débit* : fenêtre glissante testée unitairement ; en intégration, une
-  rafale reçoit `RATE_LIMITED` sans que la socket soit fermée
+  rafale reçoit `RATE_LIMITED` sans que le canal soit fermé
 - *purge* : une partie inactive au-delà du TTL est supprimée, une partie active est
   épargnée, et le jeton de session d'une partie purgée est oublié
 - *robustesse générale* : partie supprimée quand tout le monde s'est déconnecté
@@ -148,27 +150,20 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 Le jeu n'est pas encore jouable (les manches arrivent aux Lots 2 à 4). Ce qui doit être
 vérifié à ce stade, c'est le **salon multijoueur**, à deux navigateurs minimum.
 
-### 2.1 Le serveur seul
-
-```bash
-npm run dev:server
-curl http://localhost:4000/health
-```
-
-Attendu :
-
-```json
-{"status":"ok","games":0,"identities":293,"icons":349,"uptimeSeconds":3}
-```
-
-Puis `Ctrl+C` : le log doit afficher « SIGINT reçu, arrêt en cours… » et le processus
-se termine sans rester bloqué.
-
-### 2.2 Client + serveur
+### 2.1 Le site seul
 
 ```bash
 npm run dev
 ```
+
+Un seul processus, sur http://localhost:3000. Il n'y a plus de serveur de jeu à lancer :
+le moteur démarre dans l'onglet du joueur qui crée la partie.
+
+`localhost` est un contexte sécurisé, donc WebRTC et `crypto.getRandomValues` y
+fonctionnent. Une IP locale en `http://` **ne l'est pas** — voir §3 pour tester depuis un
+téléphone.
+
+### 2.2 L'accueil
 
 Ouvre http://localhost:3000.
 
@@ -176,7 +171,7 @@ Ouvre http://localhost:3000.
 |---|---|
 | Titre | `IDENTITÉ SECRÈTE`, « Secrète » en violet |
 | Héros | Carte sombre « Cléopâtre » + cinq icônes en éventail, numérotées 1 à 5 |
-| Bandeau du bas | Point **vert**, « Serveur connecté · horloge synchronisée (N ms d'écart) » |
+| Bandeau du bas | Point **vert**, « Prêt · aucun serveur nécessaire, les téléphones se parlent directement » |
 | Compteur | « 3 à 8 joueurs · 293 identités · 349 icônes » |
 | `COMMENT JOUER ?` | Ouvre `/comment-jouer`, cinq étapes numérotées, retour vers l'accueil |
 | `CRÉER` / `REJOINDRE` | Mènent à `/creer` et `/rejoindre` |
@@ -188,10 +183,10 @@ fenêtre de navigation privée.
 
 | Étape | Attendu |
 |---|---|
-| Fenêtre A : `CRÉER UNE PARTIE`, pseudo « Sarah » | Redirection vers `/game/XXXXX`, code affiché en cinq jetons noirs |
+| Fenêtre A : `CRÉER UNE PARTIE`, pseudo « Sarah » | Redirection vers `/game?c=XXXXX`, code affiché en cinq jetons noirs ; mention « la partie tourne sur ton téléphone » en bas |
 | `COPIER LE CODE` | « Copié ! » sous les boutons |
 | `PARTAGER` | Feuille de partage native sur mobile, copie du lien ailleurs |
-| Fenêtre B : coller le lien `/game/XXXXX` | Le salon demande le pseudo **sur place**, sans repasser par l'accueil |
+| Fenêtre B : coller le lien `/game?c=XXXXX` | Le salon demande le pseudo **sur place**, sans repasser par l'accueil |
 | Fenêtre B : pseudo « Allan » | Les **deux** fenêtres affichent 2 joueurs, sans rechargement |
 | Fenêtre A | 👑 sur Sarah, badge « Toi » sur Sarah, « 2 sur 8 connectés » |
 | Fenêtre B : réglages | Boutons visibles mais **inertes**, mention « Seul l'hôte peut les changer » |
@@ -219,7 +214,7 @@ Trois contextes ouverts, réglages laissés par défaut (5 manches, 60 s / 60 s)
 | Refaire une manche sans rien choisir chez un joueur | À la fin du décompte, une icône de sa main apparaît quand même dans sa série |
 | Comparer les décomptes | **Même valeur à ± 1 s** sur les trois appareils |
 | Sous 10 s | Le décompte passe au rose, l'icône change de ⏱️ à ⏳, il pulse |
-| À `00:00` | Le décompte reste à zéro, puis la bascule arrive — c'est le serveur qui décide, pas l'écran |
+| À `00:00` | Le décompte reste à zéro, puis la bascule arrive — c'est le moteur qui décide, pas l'écran |
 | Phase « Qui est qui ? » | N−1 séries anonymes **avec les vraies icônes choisies**, la sienne absente ; un sélecteur par série |
 | Choisir la même identité pour deux séries | Les deux affectations **s'échangent**, aucun message d'erreur |
 | Laisser une case vide | `VALIDER MES RÉPONSES` reste désactivé, la légende indique `1 / 2` |
@@ -258,8 +253,15 @@ Trois contextes en pleine manche. Ferme brutalement l'onglet de l'un d'eux.
 
 À n'importe quelle phase, appuie sur F5 chez un joueur au hasard. Attendu : il revient
 **exactement** où il en était — même phase, même identité, même main, même décompte. Le
-décompte ne repart pas de zéro : il est calculé depuis `phaseEndsAt`, un timestamp
-serveur.
+décompte ne repart pas de zéro : il est calculé depuis `phaseEndsAt`, un timestamp produit
+par l'hôte.
+
+**À refaire en visant l'hôte lui-même.** C'est le cas nouveau, et le plus important : son
+onglet fait tourner la partie. Le moteur est restauré depuis son `localStorage`, il
+reprend son code auprès du service de mise en relation, et les autres joueurs se
+reconnectent seuls en quelques secondes — sans redemander leur pseudo. Attendu chez eux
+pendant l'opération : « Connexion perdue », puis retour automatique à l'écran de la phase
+en cours.
 
 ### 2.4 Actualiser la page
 
@@ -282,12 +284,24 @@ Trois contextes ouverts, Sarah hôte.
 | L'hôte revient (rouvrir le lien) avant 30 s | Il **garde** la couronne, la ligne repasse en normal |
 | Un joueur non-hôte se déconnecte plus de **60 s** | Il disparaît de la liste, message « … a quitté la partie » |
 
-### 2.9 La coupure de serveur
+### 2.9 La disparition de l'hôte
 
-Client ouvert, tue le serveur (`Ctrl+C` dans son terminal). Sous quelques secondes, le
-bandeau doit passer au **rose** avec le message qui indique quoi faire. Relance le
-serveur : le bandeau repasse au vert **tout seul**, sans recharger la page. C'est la
-reconnexion automatique de Socket.IO, sur laquelle s'appuiera `game:rejoin` au Lot 1.
+Deux cas, à ne pas confondre — c'est la contrepartie de l'absence de serveur.
+
+| Action sur l'onglet de l'hôte | Attendu chez les invités |
+|---|---|
+| **F5** (rechargement) | « Connexion perdue » quelques secondes, puis retour tout seul à la phase en cours, sans rien retaper |
+| **Fermeture** de l'onglet | « Connexion perdue », puis après une série de tentatives : « Partie fermée — l'hôte a fermé son onglet ». Il faut recréer une partie |
+
+Le second cas est **normal** : l'état de la partie ne vit nulle part ailleurs que dans
+l'onglet de l'hôte. Vérifie surtout que le message le dit clairement, plutôt que de
+laisser tourner une reconnexion sans fin.
+
+### 2.12 Perte de réseau chez un invité
+
+Coupe le Wi-Fi d'un invité en pleine manche, attends dix secondes, rétablis-le. Attendu :
+il repasse en ligne tout seul, retrouve sa phase et sa main. Chez les autres, il apparaît
+grisé pendant la coupure, puis redevient normal — sans qu'aucune phase ne soit sautée.
 
 ### 2.10 Sons
 
@@ -351,15 +365,28 @@ Utilise donc quatre contextes séparés :
 
 1. Relève l'IP locale de la machine : `ipconfig getifaddr en0` (macOS) ou
    `hostname -I | awk '{print $1}'` (Linux).
-2. Dans `.env`, remplace `localhost` par cette IP **dans les deux variables** :
-   `CLIENT_ORIGIN=http://192.168.1.42:3000` et
-   `NEXT_PUBLIC_SERVER_URL=http://192.168.1.42:4000`.
-3. Lance Next sur toutes les interfaces : `npx next dev -H 0.0.0.0` dans `apps/web`
-   (ou ajoute `-H 0.0.0.0` au script `dev`).
-4. Sur les téléphones, ouvre `http://192.168.1.42:3000`.
+⚠️ **Une IP locale en `http://` ne suffit pas.** WebRTC et `crypto.getRandomValues`
+exigent un contexte sécurisé : `https://` ou `localhost`. Servir le site sur
+`http://192.168.1.42:3000` donnera une page qui s'affiche mais ne crée aucune partie.
 
-Si un téléphone ne se connecte pas alors que la machine y arrive, c'est presque toujours
-le pare-feu de la machine hôte ou un réseau Wi-Fi en isolation client.
+Deux façons de contourner, au choix :
+
+**Un tunnel HTTPS** — le plus simple :
+
+```bash
+npm run dev
+npx localtunnel --port 3000    # ou : ngrok http 3000
+```
+
+Ouvre l'URL `https://…` fournie sur chaque téléphone.
+
+**Le site déployé** — le plus représentatif : pousse sur `main`, attends le workflow,
+et joue sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. C'est le seul moyen de tester
+le service de mise en relation dans les conditions réelles.
+
+Si un téléphone ne rejoint pas alors que les autres y arrivent, c'est un problème de NAT
+et non de pare-feu : mets-le sur le même Wi-Fi que l'hôte. Si ça règle le cas, il faudra
+un relais TURN pour les réseaux mixtes (voir la section *Réseau* du README).
 
 ### Points à surveiller pendant le scénario
 
@@ -377,7 +404,14 @@ le pare-feu de la machine hôte ou un réseau Wi-Fi en isolation client.
 
 ### Vérifier l'absence de fuite d'identité à la main
 
-En phase `CLUE_SELECTION`, dans les outils de développement du joueur B :
-onglet **Réseau** → filtre **WS** → la connexion Socket.IO → **Messages**. Aucun message
-reçu par B ne doit contenir l'identité de A. C'est la garantie n° 1 du §6, et le test
-automatisé correspondant arrive au Lot 3.
+Le trafic de jeu passe par un canal WebRTC, que l'onglet **Réseau** n'affiche pas. On
+l'inspecte donc autrement, en phase `CLUE_SELECTION`, chez le joueur B :
+
+`chrome://webrtc-internals` liste les canaux ouverts et leur volume, ce qui confirme que
+les messages vont bien de téléphone à téléphone. Pour lire le contenu, poser un point
+d'arrêt dans `GuestNode.receive` (`apps/web/src/lib/net/guestNode.ts`) et examiner les
+payloads reçus : aucun ne doit contenir l'identité de A, ni `labelMap`, ni un
+`sessionToken` qui ne soit pas le sien.
+
+C'est la garantie n° 1 du §6. Les tests `phases.test.ts` la vérifient automatiquement en
+inspectant **tous** les payloads reçus, pas seulement ceux qu'on attendait.

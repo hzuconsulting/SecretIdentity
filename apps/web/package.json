@@ -10,12 +10,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@identite-secrete/engine": "*",
     "@identite-secrete/shared": "*",
     "framer-motion": "^11.15.0",
     "next": "^15.1.3",
+    "peerjs": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "socket.io-client": "^4.8.1"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",

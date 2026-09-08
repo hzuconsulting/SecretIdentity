@@ -112,14 +112,15 @@ export const PHASES: readonly Phase[] = [
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
-//  État serveur (autoritaire — jamais sérialisé tel quel)
+//  État autoritaire (détenu par l'hôte — jamais sérialisé tel quel)
 // ─────────────────────────────────────────────────────────────
 
 export interface Player {
   id: PlayerId;
-  /** Secret. Ne quitte jamais le serveur, sauf vers son propriétaire. */
+  /** Secret. Ne quitte jamais l'hôte, sauf vers son propriétaire. */
   sessionToken: string;
-  socketId: string | null;
+  /** Lien de transport en cours. `null` quand le joueur est déconnecté. */
+  connectionId: string | null;
   nickname: string;
   score: number;
   connected: boolean;

@@ -40,6 +40,9 @@ exécute `tsc --noEmit` et échoue si les types cassent.
 **À revoir si.** On veut une image Docker minimale ou un démarrage instantané → passer à
 un bundle esbuild (`esbuild src/index.ts --bundle --platform=node`) au Lot 5.
 
+**Caduque depuis le Lot 7 (D-50).** Il n'y a plus de processus serveur : le moteur est
+transpilé par Next avec le reste du site.
+
 ---
 
 ### D-03 · Pile de polices système plutôt qu'une police distante
@@ -65,11 +68,14 @@ une vraie personnalité typographique.
 ### D-04 · Vitest configuré à la racine, pas par espace de travail
 
 **Décision.** Un seul `vitest.config.ts` racine, avec un `include` qui couvre
-`packages/**` et `apps/server/**`.
+`packages/**`.
 
 **Pourquoi.** `npm test` doit tout lancer d'un coup, et les tests d'intégration du Lot 5
-mêleront de toute façon le serveur et le package partagé. Une configuration par espace
+mêleront de toute façon le moteur et le package partagé. Une configuration par espace
 de travail multiplierait les fichiers sans bénéfice.
+
+*(Le glob couvrait aussi `apps/server/**` jusqu'au Lot 7, où le moteur est devenu
+`packages/engine` — voir D-50.)*
 
 ---
 
@@ -158,6 +164,9 @@ configuration CORS de Socket.IO.
 **Pourquoi.** En pratique on a besoin d'au moins deux origines : le domaine de production
 et les URL de prévisualisation Vercel. Une seule valeur obligerait à redéployer le
 serveur pour tester une branche.
+
+**Caduque depuis le Lot 7 (D-50).** Sans serveur, il n'y a plus d'origine à autoriser :
+les canaux WebRTC ne sont pas soumis au CORS.
 
 ---
 
@@ -687,19 +696,156 @@ catalogues de données.
 
 ---
 
+## Lot 7 — Passage au pair à pair, sans serveur
+
+Objectif : déployer sur GitHub Pages, seul. GitHub Pages ne sert que des fichiers, or
+le jeu reposait sur un processus Node persistant. Il fallait donc déplacer le moteur —
+pas le réécrire.
+
+### D-50 · Le moteur déménage dans le navigateur de l'hôte, il n'est pas réécrit
+
+Trois voies étaient possibles : tout ramener sur un seul appareil qu'on se passe ; louer
+un service géré (Firebase, Supabase) ; ou faire tourner le moteur existant dans le
+navigateur d'un joueur.
+
+La première changeait le jeu — « chacun sur son téléphone » est la moitié de l'intérêt.
+La deuxième déplaçait la dépendance sans la supprimer, et imposait de réécrire les règles
+en transactions de base de données, c'est-à-dire de jeter les 146 tests avec.
+
+La troisième garde le code tel quel. Le moteur ne dépendait de Socket.IO que par cinq
+fichiers, et de Node que par `node:crypto` : le reste était déjà pur. On a donc extrait
+`packages/engine`, remplacé `io: Server` par une interface `Emitter` de trois lignes, et
+`randomBytes` par `crypto.getRandomValues` — disponible des deux côtés.
+
+Ce qui n'a pas bougé : les règles, la machine à états, `playerView.ts`, la validation Zod,
+le calcul des scores. C'est l'essentiel du projet, et il n'a pas été touché.
+
+### D-51 · Le code de partie **est** l'identifiant de rendez-vous
+
+Le serveur tenait un annuaire : code → partie. Sans lui, il fallait un autre moyen pour
+qu'un invité trouve l'hôte à partir de cinq caractères lus à voix haute.
+
+L'espace de noms du service de mise en relation joue ce rôle : l'hôte y réserve
+`identite-secrete-v1-K7P4Q`, les invités s'y connectent. Aucun annuaire à écrire, et
+l'unicité est garantie par le courtier — s'il refuse l'identifiant, on tire un autre code.
+
+Conséquence sur l'ordre des opérations : le code doit être accepté **avant** que la partie
+n'existe, sinon on afficherait à l'hôte un code que personne ne peut joindre. D'où
+`fixedCode` dans `GameHost` — le tirage a lieu au-dehors, pas dans `createGame`.
+
+Le préfixe porte un numéro de version. Le jour où le format des messages change,
+l'incrémenter empêche un ancien onglet de parler à un nouveau.
+
+### D-52 · L'hôte est un joueur comme les autres, sous la connexion `local`
+
+Il aurait été tentant de court-circuiter : l'hôte a l'état complet dans le même onglet,
+autant lire dedans directement.
+
+C'est exactement ce qu'il ne faut pas faire. Le jour où un chemin de lecture directe
+existe, c'est par lui que fuit une identité — et il ne serait couvert par aucun test,
+puisque les tests passent par les messages. L'hôte émet donc ses actions par
+`GameHost.dispatch(LOCAL, …)` et reçoit sa vue par `playerView.ts`, comme tout le monde.
+
+Le coût est nul : ce sont des appels de fonction dans le même processus.
+
+### D-53 · Un rattrapage explicite des échéances, parce qu'un onglet n'est pas un serveur
+
+C'est la vraie différence entre un serveur et un navigateur, et elle est sournoise : un
+onglet en arrière-plan voit ses `setTimeout` étalés, puis gelés. L'hôte qui verrouille son
+téléphone pendant la phase d'indices rendrait la main sur une manche figée, avec cinq
+joueurs devant un décompte à zéro.
+
+`GameEngine.tick()` compare `phaseEndsAt` à l'heure courante et avance si l'échéance est
+passée. Il est appelé à trois endroits : à chaque message reçu, sur `visibilitychange`, et
+par un battement d'une seconde. Les minuteurs restent le chemin nominal — `tick` ne fait
+que rattraper ce qu'ils ont manqué, et ne fait rien quand ils ont fait leur travail.
+
+### D-54 · La partie survit au rechargement de l'onglet de l'hôte
+
+Sur un téléphone, un onglet peut être rechargé par le système sans que personne n'ait rien
+demandé. Perdre une partie de huit manches pour cette raison aurait été inacceptable.
+
+L'état est donc sérialisé dans le `localStorage` de l'hôte après chaque diffusion,
+groupées par 400 ms — une manche produit des dizaines de diffusions, et l'hôte est déjà le
+téléphone le plus chargé. Au rechargement, le moteur repart de cette sauvegarde et
+reprend son identifiant auprès du courtier, en insistant : celui-ci met quelques secondes
+à libérer un identifiant abandonné.
+
+Les jetons de session sont conservés, donc les autres joueurs se reconnectent seuls, sans
+repasser par le formulaire de pseudo. Ils reviennent tous marqués **déconnectés** : leurs
+canaux n'existent plus, et les prétendre ouverts ferait attendre la partie sur des joueurs
+qui ne recevraient rien.
+
+`JSON.stringify` transforme silencieusement une `Map` en `{}` : la conversion est écrite à
+la main plutôt que déléguée, et un test vérifie l'aller-retour complet. C'est le genre de
+perte muette qui ne se voit qu'en production.
+
+### D-55 · Une fermeture de canal en retard ne déclare pas absent un joueur revenu
+
+En WebRTC, changer de réseau ouvre souvent le nouveau canal **avant** que l'ancien
+n'annonce sa fermeture. Traitée naïvement, cette fermeture marquerait déconnecté un joueur
+qui vient de revenir — et pourrait mettre la partie en pause alors que tout le monde est là.
+
+`handleDisconnect` compare donc l'identifiant de connexion qui se ferme à celui que porte
+le joueur : s'ils diffèrent, la fermeture concerne un canal périmé et on l'ignore.
+
+### D-56 · Les tests d'intégration abandonnent les sockets
+
+Ils démarraient un vrai serveur sur un vrai port avec de vrais clients Socket.IO. Ce
+qu'ils éprouvaient de Socket.IO n'a plus d'objet : le transport n'est plus là.
+
+Ils passent désormais par un canal en mémoire qui parle au même `GameHost`. Les 146 tests
+sont conservés à l'identique — mêmes scénarios, mêmes assertions, vraies parties, vrais
+minuteurs — et neuf s'y ajoutent pour la sérialisation, le rattrapage d'échéances et la
+course de reconnexion. La suite passe de deux minutes à vingt secondes, et les
+acquittements arrivent après les diffusions : plus aucun test ne peut passer par chance
+sur un ordonnancement favorable.
+
+### D-57 · La validation reste entière, bien que le moteur soit « chez un joueur »
+
+Objection naturelle : si le moteur tourne dans un navigateur, un joueur malintentionné
+peut le modifier. C'est vrai — et sans conséquence sur ce qui compte.
+
+L'hôte pouvait déjà tricher avant : il lui suffisait de modifier le serveur. Ce qui n'a
+pas changé, c'est que les messages des **autres** joueurs viennent de navigateurs que
+l'hôte ne contrôle pas, et restent donc validés un par un : phase, rôle, appartenance à la
+main, sous-ensemble d'étiquettes autorisé. Un invité modifié ne peut toujours pas deviner
+sa propre série ni lire l'identité d'un voisin.
+
+La table d'événements est fermée : un nom inconnu est rejeté, il n'existe aucun chemin
+générique par lequel un message inattendu atteindrait l'état.
+
+### D-58 · Un TURN n'est pas fourni, et c'est assumé
+
+Sans relais, deux joueurs sur deux réseaux mobiles différents peuvent ne pas réussir à
+s'atteindre — NAT symétrique. Un TURN règle le cas, mais il fait transiter tout le trafic :
+il ne peut pas être gratuit, et en fournir un annulerait l'intérêt du projet.
+
+Le cadre visé est une pièce et un Wi-Fi commun, où les STUN publics suffisent. Le point de
+configuration existe (`NEXT_PUBLIC_ICE_SERVERS`) pour brancher un relais sans toucher au
+code, et le README dit franchement quand il devient nécessaire.
+
+---
+
 ## Points laissés ouverts
 
-- **Rien n'a encore été ouvert dans un vrai navigateur.** Les 94 tests tournent sur de
-  vrais sockets et un vrai serveur, et le `next build` passe, mais aucun écran n'a été
-  cliqué à la main. C'est la première chose à faire — la procédure est dans `TESTING.md` §2.
+- **Le pair à pair n'a pas encore été éprouvé sur de vrais téléphones.** Les 155 tests
+  couvrent le moteur, et le `next build` statique passe, mais l'établissement des canaux
+  WebRTC ne peut se vérifier que dans de vrais navigateurs, sur un vrai réseau. C'est la
+  première chose à faire — la procédure est dans `TESTING.md` §2.
+- **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
+  l'absence de serveur (D-50). Une migration du moteur vers un autre joueur serait
+  possible — l'état est déjà sérialisable (D-54) — mais elle demande de transférer cet
+  état à un successeur avant la coupure, ce qui est un chantier à part entière.
 - **La direction typographique reste le maillon faible** (voir D-03). C'est le premier
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 146 tests couvrent le serveur et la logique partagée ;
-  le client n'est vérifié que par `tsc` et le build. Une passe Playwright sur le scénario
-  du §1 serait le complément naturel.
-- **La limitation de débit est par socket, pas par adresse IP.** Ouvrir cinquante sockets
+- **Aucun test d'interface.** Les 155 tests couvrent le moteur et la logique partagée ;
+  les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
+  Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
+  couvrir `lib/net/`, qui a besoin d'un vrai navigateur.
+- **La limitation de débit est par canal, pas par pair.** Ouvrir cinquante canaux
   contourne le plafond. Suffisant pour un jeu de soirée à code partagé ; à revoir si le
   service devenait public.
 - **La pause ne distingue pas déconnexion et départ.** Trois joueurs dont un part
@@ -708,9 +854,6 @@ catalogues de données.
   la correction.
 - **Pas de linter.** `eslint-config-next` n'est pas installé. `tsc --noEmit` en mode
   strict couvre l'essentiel. À rajouter au Lot 5 si le besoin se fait sentir.
-- **Pas de limitation de débit.** Rien n'empêche un client de marteler `settings:update`.
-  Sans conséquence sur l'état (chaque appel est validé et idempotent en effet), mais ça
-  génère du trafic inutile. À traiter au Lot 5 avec les autres cas de robustesse.
 - **`InMemoryStore.save()` reste un quasi no-op.** Voulu (D-10), mais cela signifie qu'un
   oubli d'appel à `save()` ne se verrait pas aujourd'hui et casserait un futur
   `RedisStore`. Les gestionnaires l'appellent systématiquement après mutation.

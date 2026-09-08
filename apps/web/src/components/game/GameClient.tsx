@@ -19,9 +19,10 @@ import { NicknameField } from '@/components/ui/NicknameField';
 /**
  * Point d'entrée client d'une partie.
  *
- * Il détient la connexion et **route sur la phase envoyée par le serveur**.
- * Il n'existe aucune machine à états côté client : `view.phase` décide, point.
- * C'est ce qui fait qu'actualiser la page ramène exactement au bon écran.
+ * Il détient la connexion et **route sur la phase envoyée par le moteur**.
+ * Il n'existe aucune machine à états côté écran : `view.phase` décide, point.
+ * C'est ce qui fait qu'actualiser la page ramène exactement au bon écran — y
+ * compris chez l'hôte, dont le moteur est restauré depuis son stockage local.
  */
 export function GameClient({ code }: { code: string }) {
   const {
@@ -38,6 +39,7 @@ export function GameClient({ code }: { code: string }) {
     updateSettings,
     leave,
     dismissError,
+    hosting,
   } = useGameConnection(code);
 
   const router = useRouter();
@@ -102,12 +104,18 @@ export function GameClient({ code }: { code: string }) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 py-10 text-center">
         <p className="font-display text-2xl font-black uppercase">
-          {status === 'lost' ? 'Connexion perdue' : 'Connexion au salon…'}
+          {status === 'host-gone'
+            ? 'Partie fermée'
+            : status === 'lost'
+              ? 'Connexion perdue'
+              : 'Connexion au salon…'}
         </p>
         <p className="text-base font-semibold text-muted">
-          {status === 'lost'
-            ? 'Le serveur est injoignable. La reconnexion est automatique dès qu’il répond.'
-            : 'Encore une seconde.'}
+          {status === 'host-gone'
+            ? 'L’hôte a fermé son onglet : c’est son téléphone qui faisait tourner la partie. Il faut en créer une nouvelle.'
+            : status === 'lost'
+              ? 'L’hôte ne répond pas. La reconnexion est automatique dès qu’il revient.'
+              : 'Encore une seconde.'}
         </p>
         <ErrorBanner error={error} onDismiss={dismissError} />
         <Link
@@ -124,6 +132,7 @@ export function GameClient({ code }: { code: string }) {
     <>
       {renderPhase()}
       {view.paused ? <PausedOverlay view={view} /> : null}
+      {hosting ? <HostingNotice /> : null}
       <ToastStack toasts={toasts} />
     </>
   );
@@ -167,4 +176,20 @@ export function GameClient({ code }: { code: string }) {
         return null;
     }
   }
+}
+
+/**
+ * Rappel discret, affiché uniquement chez l'hôte.
+ *
+ * Son onglet **est** le serveur : le fermer met fin à la partie pour tout le
+ * monde. C'est la contrepartie de « aucun serveur à déployer », et elle mérite
+ * d'être dite une fois, sans bloquer l'écran. Un rafraîchissement, lui, est sans
+ * danger : la partie est restaurée depuis le stockage local.
+ */
+function HostingNotice() {
+  return (
+    <p className="pointer-events-none fixed inset-x-0 bottom-0 z-10 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-center text-[11px] font-semibold text-muted">
+      La partie tourne sur ton téléphone · garde cet onglet ouvert
+    </p>
+  );
 }

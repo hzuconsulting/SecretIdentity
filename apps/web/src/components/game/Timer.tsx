@@ -10,7 +10,7 @@ import { useServerClock } from '@/hooks/useServerClock';
 import { useSound } from '@/hooks/useSound';
 
 interface TimerProps {
-  /** Timestamp serveur. `null` = pas de limite de temps. */
+  /** Timestamp produit par l'hôte. `null` = pas de limite de temps. */
   phaseEndsAt: number | null;
 }
 
@@ -18,7 +18,7 @@ interface TimerProps {
  * Décompte de phase.
  *
  * Il affiche, il ne décide pas. Quand il atteint `00:00`, il reste à zéro et
- * attend l'événement serveur : c'est le serveur qui change de phase, jamais
+ * attend l'événement du moteur : c'est le moteur qui change de phase, jamais
  * ce composant (§4.2).
  *
  * L'urgence est signalée par **trois** signaux simultanés — couleur, icône et

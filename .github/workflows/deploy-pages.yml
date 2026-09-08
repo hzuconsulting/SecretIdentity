@@ -1,22 +1,23 @@
-# Déploiement du client sur GitHub Pages.
+# Déploiement sur GitHub Pages.
 #
-# ⚠ Ce workflow ne déploie **que l'interface**. Le serveur temps réel a besoin
-# d'un processus persistant : GitHub Pages ne sert que des fichiers. Il doit
-# tourner ailleurs (Railway, Fly, Render), en HTTPS, et son URL doit être
-# renseignée dans la variable de dépôt `SERVER_URL`.
+# Le site est **entièrement statique** : il n'y a rien d'autre à déployer.
+# Le moteur de jeu tourne dans le navigateur du joueur qui crée la partie, et
+# les téléphones se parlent ensuite directement en WebRTC.
 #
-# Réglages à faire une fois, dans le dépôt :
+# Réglage à faire une fois, dans le dépôt :
 #   Settings → Pages → Source : « GitHub Actions »
-#   Settings → Secrets and variables → Actions → Variables :
-#     SERVER_URL = https://mon-serveur.up.railway.app
+#
+# Aucune variable n'est obligatoire. Deux sont possibles, pour reprendre la main
+# sur la mise en relation (Settings → Secrets and variables → Actions → Variables) :
+#   PEER_HOST / PEER_PORT / PEER_PATH / PEER_KEY  → un PeerServer à soi
+#   ICE_SERVERS                                   → un relais TURN, en JSON
+# Voir la section « Réseau » du README.
 
 name: Déploiement GitHub Pages
 
 on:
   push:
     branches: [main]
-  # Permet de relancer un déploiement à la main, par exemple après avoir changé
-  # l'URL du serveur.
   workflow_dispatch:
 
 permissions:
@@ -56,15 +57,15 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
           # Le site vit dans un sous-dossier au nom du dépôt.
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
-          # Inlinée au build : changer cette variable impose de relancer le
-          # workflow, un simple redémarrage du serveur ne suffit pas.
-          NEXT_PUBLIC_SERVER_URL: ${{ vars.SERVER_URL }}
-        run: |
-          if [ -z "$NEXT_PUBLIC_SERVER_URL" ]; then
-            echo "::error::La variable de dépôt SERVER_URL est vide. Sans elle, le client tentera de joindre localhost depuis le téléphone des joueurs."
-            exit 1
-          fi
-          npx next build
+          # Optionnelles : vides, on utilise le courtier public de PeerJS et des
+          # STUN publics. Elles sont inlinées au build — les changer impose de
+          # relancer ce workflow.
+          NEXT_PUBLIC_PEER_HOST: ${{ vars.PEER_HOST }}
+          NEXT_PUBLIC_PEER_PORT: ${{ vars.PEER_PORT }}
+          NEXT_PUBLIC_PEER_PATH: ${{ vars.PEER_PATH }}
+          NEXT_PUBLIC_PEER_KEY: ${{ vars.PEER_KEY }}
+          NEXT_PUBLIC_ICE_SERVERS: ${{ vars.ICE_SERVERS }}
+        run: npx next build
 
       - uses: actions/configure-pages@v5
 

@@ -4,14 +4,46 @@ Jeu de soirée multijoueur en temps réel, mobile-first. 3 à 8 joueurs, chacun 
 téléphone. Tu reçois une identité secrète, tu la fais deviner avec des icônes, et tu
 essaies de reconnaître celles des autres.
 
+**Aucun serveur à déployer.** Le site est un ensemble de fichiers statiques, publiable
+sur GitHub Pages, et le moteur de jeu tourne dans le navigateur du joueur qui crée la
+partie. Les téléphones échangent ensuite directement, en WebRTC.
+
 ---
+
+## Comment ça marche
+
+```
+     Téléphone HÔTE                    Téléphones INVITÉS
+  ┌──────────────────────┐          ┌──────────────────────┐
+  │  Interface           │◄────────►│  Interface           │
+  │  + MOTEUR DE JEU     │  WebRTC  │                      │
+  │  (état autoritaire)  │  direct  │                      │
+  └──────────┬───────────┘          └──────────┬───────────┘
+             │                                 │
+             └────────────┬────────────────────┘
+                          ▼
+              Service de mise en relation
+        (uniquement pour se trouver, au début)
+```
+
+Trois conséquences, à connaître avant de jouer :
+
+- **Le code de partie est un identifiant de rendez-vous.** L'hôte le réserve auprès du
+  service de mise en relation ; les invités s'y connectent. C'est ce qui remplace
+  l'annuaire de salons que tenait le serveur.
+- **L'onglet de l'hôte fait tourner la partie.** Le fermer y met fin pour tout le monde.
+  Le rafraîchir, en revanche, est sans danger : la partie est restaurée depuis le
+  stockage local de l'hôte, et les autres joueurs se reconnectent tout seuls.
+- **Le moteur reste autoritaire.** Il valide tout, et n'envoie à chaque joueur que la vue
+  calculée pour lui. Le fait qu'il tourne dans un navigateur ne change rien à ça : un
+  invité ne reçoit jamais l'identité d'un autre, pas plus qu'avant.
 
 ## Prérequis
 
 - **Node.js ≥ 20.11** (testé sur 22)
 - npm ≥ 10
 
-Rien d'autre : pas de base de données, pas de Docker, pas de service externe.
+Rien d'autre : pas de base de données, pas de Docker, pas de compte à créer.
 
 ## Installation
 
@@ -22,49 +54,33 @@ npm install
 ```
 
 Un seul `npm install` à la racine installe les trois espaces de travail
-(`packages/shared`, `apps/server`, `apps/web`).
+(`packages/shared`, `packages/engine`, `apps/web`).
 
 ## Lancement en développement
 
 ```bash
-cp .env.example .env    # optionnel : les valeurs par défaut suffisent en local
 npm run dev
 ```
 
-Cela démarre **les deux processus** en parallèle :
-
-| Processus | URL | Rôle |
-|---|---|---|
-| Client Next.js | http://localhost:3000 | Interface |
-| Serveur Socket.IO | http://localhost:4000 | État de jeu autoritaire |
-
-Ouvre http://localhost:3000. Le bandeau en bas de l'accueil doit passer au vert :
-« Serveur connecté · horloge synchronisée ». S'il reste rose, le serveur n'est pas
-joignable — voir *Dépannage* plus bas.
-
-Pour lancer un seul côté :
-
-```bash
-npm run dev:server
-npm run dev:web
-```
+Un seul processus, sur http://localhost:3000. Le bandeau en bas de l'accueil doit passer
+au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépannage*.
 
 ## Scripts
 
 | Commande | Effet |
 |---|---|
-| `npm run dev` | Client + serveur ensemble |
-| `npm test` | Suite Vitest complète |
+| `npm run dev` | Serveur de développement Next |
+| `npm test` | Suite Vitest complète (155 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
-| `npm run build` | Build de production du client + vérification de types du serveur |
-| `npm run start:server` | Serveur en mode production |
+| `npm run build` | Build de production |
+| `npm run build:static` | Site statique dans `apps/web/out` |
 
 ## Structure
 
 ```
 identite-secrete/
-├── packages/shared/          # Source de vérité partagée client ⇄ serveur
+├── packages/shared/          # Source de vérité partagée
 │   └── src/
 │       ├── types.ts          # Modèle de données, phases, vues joueur, erreurs
 │       ├── constants.ts      # Toutes les valeurs de réglage et les durées
@@ -78,168 +94,168 @@ identite-secrete/
 │       └── data/
 │           ├── identities.ts # 293 identités
 │           └── icons.ts      # 349 icônes emoji
-├── apps/server/              # Node + Socket.IO, état en mémoire, autoritaire
+├── packages/engine/          # Moteur autoritaire — sans réseau ni Node
 │   └── src/
-│       ├── index.ts          # Lecture de l'environnement, écoute, arrêt propre
-│       ├── server.ts         # Fabrique du serveur (réutilisée par les tests)
-│       ├── config/env.ts     # Environnement validé au démarrage
+│       ├── host.ts           # GameHost : reçoit des messages, répond, diffuse
+│       ├── transport.ts      # Le seul contrat avec l'extérieur (`Emitter`)
+│       ├── persistence.ts    # Sérialisation d'une partie (survie au rechargement)
+│       ├── random.ts         # Jetons de session (crypto.getRandomValues)
+│       ├── timers.ts         # Registre d'échéances nommées
 │       ├── game/             # engine, pause, roundRules, round, lobby, clues, guesses
-│       ├── serialization/    # playerView.ts — ce qui sort vers un socket
-│       ├── socket/           # handlers/ (session, round) + emit.ts (diffusion)
+│       ├── serialization/    # playerView.ts — ce qui sort vers un joueur
+│       ├── handlers/         # Table des événements acceptés
 │       ├── store/            # GameStore (interface) + InMemoryStore
-│       └── __tests__/        # Intégration : vrais sockets, vrai serveur
+│       └── __tests__/        # Intégration : vraies parties, vrais minuteurs
 └── apps/web/                 # Next.js App Router + Tailwind + Framer Motion
     └── src/
-        ├── app/              # /, /creer, /rejoindre, /game/[code], /comment-jouer
+        ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer
         ├── components/       # game/ (écrans de phase), lobby/, ui/
         ├── hooks/            # useGameConnection, useServerClock, useSound
-        └── lib/              # socket, session localStorage, sound (Web Audio)
+        └── lib/
+            ├── net/          # hostNode, guestNode, peer, protocol, hostStorage
+            ├── session.ts    # Sessions localStorage
+            └── sound.ts      # Web Audio
 ```
 
-**Le module le plus important est `apps/server/src/serialization/playerView.ts`.** Tout
-ce qui part vers un client passe par lui, et il construit ses objets par liste blanche.
-Aucun objet `Game` brut n'atteint jamais un socket.
+**Le module le plus important est `packages/engine/src/serialization/playerView.ts`.**
+Tout ce qui part vers un joueur passe par lui, et il construit ses objets par liste
+blanche. Aucun objet `Game` brut n'atteint jamais un canal.
 
-**Le second est `apps/server/src/game/engine.ts`.** Il détient la machine à états : seul
-le serveur décide d'un changement de phase, sur l'échéance `phaseEndsAt` ou sur la
-condition « tout le monde a soumis », le premier des deux. Le client ne fait qu'afficher
+**Le second est `packages/engine/src/game/engine.ts`.** Il détient la machine à états :
+seul le moteur décide d'un changement de phase, sur l'échéance `phaseEndsAt` ou sur la
+condition « tout le monde a soumis », le premier des deux. Les écrans ne font qu'afficher
 le décompte.
 
-`packages/shared` est consommé **en TypeScript source**, sans étape de build
-intermédiaire : `transpilePackages` côté Next, `tsx` côté serveur. Client et serveur ne
-peuvent donc pas diverger sur un type ou une constante.
+**Le troisième est `packages/engine/src/host.ts`.** C'est la frontière : il reçoit des
+messages étiquetés par une connexion et répond, sans rien savoir du transport. C'est ce
+qui permet de le faire tourner dans le navigateur de l'hôte **et** dans les tests, avec
+exactement le même code.
 
-## Tester à plusieurs onglets
+`packages/shared` et `packages/engine` sont consommés **en TypeScript source**, sans étape
+de build intermédiaire : `transpilePackages` côté Next. Les écrans et le moteur ne peuvent
+donc pas diverger sur un type ou une constante.
 
-La procédure complète, pas à pas, est dans [`TESTING.md`](./TESTING.md).
+## Réseau
 
-En résumé : ouvre quatre onglets (ou mieux, quatre fenêtres de navigation privée
-séparées — le `sessionToken` vit dans le `localStorage`, et deux onglets d'une même
-fenêtre le partagent). Sur un vrai téléphone du réseau local, remplace `localhost` par
-l'IP de ta machine, et lance le client avec `next dev -H 0.0.0.0`.
+Deux services externes sont en jeu, et il faut savoir ce que chacun fait.
+
+**La mise en relation (signalisation).** Elle sert uniquement à ce que les joueurs se
+trouvent : l'hôte y réserve son code, les invités le cherchent. Une fois les canaux
+ouverts, plus rien n'y passe — ni les identités, ni les indices, ni les scores. Par
+défaut on utilise le courtier public de PeerJS, gratuit et sans inscription. Pour
+reprendre la main dessus, un PeerServer se lance en une commande :
+
+```bash
+npx peerjs --port 9000 --path /peer
+```
+
+puis on renseigne `NEXT_PUBLIC_PEER_HOST` & co. (voir [`.env.example`](./.env.example)).
+
+**Les serveurs ICE.** Ils permettent aux navigateurs de trouver un chemin l'un vers
+l'autre. Les STUN publics configurés par défaut suffisent au cas courant — tout le monde
+dans la même pièce, sur le même Wi-Fi, ce qui est exactement le cadre d'un jeu de soirée.
+
+Ils **ne suffisent pas** derrière certains NAT symétriques, typiquement quand deux joueurs
+sont sur deux réseaux mobiles différents. Il faut alors un relais TURN, qui ne peut pas
+être gratuit puisqu'il fait transiter tout le trafic. Il se branche via
+`NEXT_PUBLIC_ICE_SERVERS`, sans toucher au code.
 
 ## Variables d'environnement
 
-Voir [`.env.example`](./.env.example), commenté.
+Toutes optionnelles. Voir [`.env.example`](./.env.example), commenté.
 
-| Variable | Côté | Défaut | Rôle |
-|---|---|---|---|
-| `PORT` | serveur | `4000` | Port d'écoute |
-| `CLIENT_ORIGIN` | serveur | `http://localhost:3000` | Origines CORS autorisées, séparées par des virgules |
-| `NODE_ENV` | serveur | `development` | Niveau de log |
-| `NEXT_PUBLIC_SERVER_URL` | client | `http://localhost:4000` | URL du serveur Socket.IO, **inlinée au build** |
-| `NEXT_PUBLIC_BASE_PATH` | client | *(vide)* | Sous-dossier du site. `/nom-du-depot` sur GitHub Pages |
-| `NEXT_OUTPUT` | client | *(vide)* | `export` pour produire un site statique |
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `NEXT_PUBLIC_BASE_PATH` | *(vide)* | Sous-dossier du site. `/nom-du-depot` sur GitHub Pages |
+| `NEXT_OUTPUT` | *(vide)* | `export` pour produire un site statique |
+| `NEXT_PUBLIC_PEER_HOST` | *(vide)* | PeerServer à soi. Vide : courtier public PeerJS |
+| `NEXT_PUBLIC_PEER_PORT` | — | Port du PeerServer |
+| `NEXT_PUBLIC_PEER_PATH` | `/` | Chemin du PeerServer |
+| `NEXT_PUBLIC_PEER_KEY` | — | Clé du PeerServer |
+| `NEXT_PUBLIC_PEER_SECURE` | `true` | `false` pour un PeerServer en clair (local) |
+| `NEXT_PUBLIC_ICE_SERVERS` | 2 STUN publics | Tableau JSON de `RTCIceServer`, TURN compris |
 
-⚠️ `NEXT_PUBLIC_SERVER_URL` est figée au moment du `next build`. La changer sur Vercel
-impose de **redéployer**, pas seulement de redémarrer.
+⚠️ Ces variables sont figées au moment du `next build`. Les changer impose de
+**reconstruire**, pas seulement de redémarrer.
 
 ## Application installable (PWA)
 
-Le client est une **application web installable**. Sur Android comme sur iOS, elle
-s'ajoute à l'écran d'accueil et s'ouvre en plein écran, sans barre d'adresse.
+Le site est une **application web installable**. Sur Android comme sur iOS, elle s'ajoute
+à l'écran d'accueil et s'ouvre en plein écran, sans barre d'adresse.
 
 - **Android / Chrome** : menu ⋮ → « Installer l'application ».
 - **iOS / Safari** : bouton Partager → « Sur l'écran d'accueil ».
   Safari est le seul navigateur iOS qui sait le faire.
 
-Ce qui est en place : `manifest.webmanifest`, icônes 192/512 et « maskable », icône
-Apple, couleur de thème, `viewport-fit=cover` pour occuper l'écran sous l'encoche, et un
-service worker qui met en cache la coquille de l'application.
+Ce qui est en place : `manifest.webmanifest`, icônes 192/512 et « maskable », icône Apple,
+couleur de thème, `viewport-fit=cover` pour occuper l'écran sous l'encoche, et un service
+worker qui met en cache la coquille de l'application.
 
-**Le service worker ne touche jamais au trafic Socket.IO.** Une partie est un flux temps
-réel : la mettre en cache n'aurait aucun sens. Concrètement, l'accueil s'ouvre hors ligne,
-mais jouer demande évidemment le réseau.
+Le trafic de jeu passe par WebRTC, qui ne traverse pas `fetch` : le service worker n'a
+donc rien à en exclure. Concrètement, l'accueil s'ouvre hors ligne, mais jouer demande
+évidemment le réseau.
 
 ## Déploiement
 
-Le serveur Socket.IO a besoin d'un **processus persistant** et d'un état en mémoire :
-il ne peut pas tourner en fonction serverless, ni sur un hébergement de fichiers
-statiques. **Le déploiement est donc toujours en deux morceaux**, quel que soit
-l'hébergeur choisi pour le client.
-
-| | Client | Serveur |
-|---|---|---|
-| Nature | Fichiers statiques | Processus Node persistant |
-| Hébergeurs | GitHub Pages, Vercel, Netlify | Railway, Fly, Render |
-| Coût typique | Gratuit | Gratuit à quelques euros |
-
-⚠ **Le serveur doit être en HTTPS.** Un site servi en `https://` ne peut pas ouvrir une
-connexion vers un serveur en clair : le navigateur bloque le contenu mixte, et la partie
-ne se connectera jamais. Les trois hébergeurs cités fournissent le certificat.
-
-### Client → GitHub Pages
+### GitHub Pages
 
 Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 
-1. Dépose le serveur en premier (section suivante) et note son URL `https://…`.
-2. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
-3. **Settings → Secrets and variables → Actions → Variables → New variable** :
-   `SERVER_URL` = l'URL HTTPS du serveur.
-4. Pousse sur `main`. Le workflow vérifie les types, lance les 146 tests, construit le
-   site statique et le publie.
-5. Le site apparaît sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`.
-6. Reporte cette URL dans `CLIENT_ORIGIN` côté serveur, puis redémarre-le.
+1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
+2. Pousse sur `main`.
 
-Le workflow **échoue volontairement** si `SERVER_URL` est vide : sans elle, le client
-tenterait de joindre `localhost` depuis le téléphone des joueurs, ce qui donne une page
-qui ne se connecte jamais sans dire pourquoi.
+C'est tout. Le workflow vérifie les types, lance les 155 tests, construit le site statique
+et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
+requise ; celles de la section *Réseau* peuvent être ajoutées dans
+**Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.
+
+⚠️ **Le site doit être servi en HTTPS** — ce que GitHub Pages fait par défaut. WebRTC et
+`crypto.getRandomValues` ne fonctionnent que dans un contexte sécurisé : `https://` ou
+`localhost`, jamais une IP en clair.
 
 Pour construire en local et vérifier le résultat :
 
 ```bash
-NEXT_PUBLIC_BASE_PATH=/nom-du-depot \
-NEXT_PUBLIC_SERVER_URL=https://mon-serveur.up.railway.app \
 npm run build:static
-npx serve apps/web/out   # ou tout autre serveur de fichiers
+npx serve apps/web/out
 ```
 
-### Client → Vercel (alternative)
+Attention : servi ainsi sur une IP locale en `http://`, le jeu ne fonctionnera pas —
+contexte non sécurisé. Pour tester depuis un téléphone du réseau local, utiliser un
+tunnel HTTPS (`npx localtunnel --port 3000`, `ngrok http 3000`) ou déployer.
 
-1. Importe le dépôt sur Vercel.
-2. **Root Directory** : `apps/web`.
-3. Coche « Include files outside the root directory » (le monorepo a besoin de
-   `packages/shared`).
-4. Build command : `npm run build` · Install command : `npm install` (lancée à la racine).
-5. Variable d'environnement : `NEXT_PUBLIC_SERVER_URL` = l'URL publique du serveur,
-   en `https://`.
-6. Déploie, puis reporte l'URL Vercel obtenue dans `CLIENT_ORIGIN` côté serveur.
+### Autres hébergeurs
 
-Sur Vercel, laisse `NEXT_PUBLIC_BASE_PATH` vide : le site est à la racine du domaine.
+N'importe quel hébergement de fichiers statiques convient : Netlify, Cloudflare Pages,
+Vercel, un seau S3, un dossier Apache. Il n'y a rien d'autre à installer. Sur un domaine
+dédié, laisser `NEXT_PUBLIC_BASE_PATH` vide.
 
-### Serveur → Railway (ou Fly / Render)
+## Tester à plusieurs onglets
 
-**Railway**
+La procédure complète, pas à pas, est dans [`TESTING.md`](./TESTING.md).
 
-1. Nouveau service depuis le dépôt.
-2. Root Directory : la racine du dépôt (pas `apps/server` — npm workspaces a besoin de
-   la racine pour résoudre `@identite-secrete/shared`).
-3. Build command : `npm install`
-4. Start command : `npm run start:server`
-5. Variables : `CLIENT_ORIGIN` = l'URL Vercel, `NODE_ENV=production`.
-   `PORT` est fourni automatiquement par Railway — ne le définis pas à la main.
-6. Génère un domaine public, et reporte-le dans `NEXT_PUBLIC_SERVER_URL` côté Vercel.
-
-**Render** : mêmes réglages, type « Web Service », plan avec instance persistante
-(le plan gratuit met le service en veille, ce qui coupe les parties en cours).
-
-**Fly.io** : `fly launch` à la racine, `internal_port = 4000`, et
-`auto_stop_machines = false` pour la même raison.
-
-Vérifie le déploiement avec `curl https://<serveur>/health` : la réponse contient le
-nombre de parties en cours et la taille du catalogue.
+En résumé : ouvre quatre **fenêtres de navigation privée séparées** — le `sessionToken`
+vit dans le `localStorage`, et deux onglets d'une même fenêtre le partagent. La connexion
+WebRTC entre deux onglets du même navigateur fonctionne normalement.
 
 ## Dépannage
 
-**Le bandeau reste rose (« Serveur injoignable »)**
-Le serveur ne tourne pas, ou `NEXT_PUBLIC_SERVER_URL` pointe ailleurs. Teste
-`curl http://localhost:4000/health`, ou l'URL publique en production.
+**Le bandeau reste rose (« Service de mise en relation injoignable »)**
+Le courtier public ne répond pas, ou le réseau le bloque. Réessaie ; si c'est durable,
+lance ton propre PeerServer (voir *Réseau*).
 
-**Le site s'affiche mais ne se connecte jamais, en HTTPS**
-Presque toujours du contenu mixte : le site est en `https://` et
-`NEXT_PUBLIC_SERVER_URL` en `http://`. La console du navigateur le dit
-explicitement. Corrige la variable et **relance le build** — elle est inlinée au
-moment de la compilation, redémarrer ne suffit pas.
+**Le bandeau dit « Ce navigateur ne gère pas les connexions directes »**
+Soit le navigateur est trop ancien, soit le site n'est pas servi en contexte sécurisé.
+Vérifie que l'URL commence par `https://` — ou `http://localhost`.
+
+**« Cette partie n'est plus ouverte »**
+L'hôte a fermé son onglet, ou le code a été mal recopié. Il faut recréer une partie :
+c'est la contrepartie de l'absence de serveur, l'état ne vit nulle part ailleurs.
+
+**Un joueur n'arrive pas à rejoindre, les autres si**
+Presque toujours un problème de NAT : ce joueur est sur un autre réseau que l'hôte.
+Le mettre sur le même Wi-Fi règle le cas immédiatement ; sinon il faut un relais TURN
+(voir *Réseau*).
 
 **Le site s'affiche sans aucun style sur GitHub Pages**
 Le `NEXT_PUBLIC_BASE_PATH` ne correspond pas au nom du dépôt. Le workflow le calcule
@@ -249,14 +265,6 @@ automatiquement ; en build manuel, il faut le passer à la main.
 L'installation exige HTTPS (ou `localhost`), un manifeste valide et un service worker
 enregistré. En développement le service worker est volontairement désactivé : teste
 l'installation sur le site déployé.
-
-**Erreur CORS dans la console du navigateur**
-L'origine du client n'est pas dans `CLIENT_ORIGIN`. En production, l'URL doit être
-exacte, avec le schéma et sans barre oblique finale.
-
-**Le client se connecte en local mais pas depuis un téléphone**
-Lance Next avec `-H 0.0.0.0`, et mets l'IP locale de la machine (pas `localhost`)
-dans `NEXT_PUBLIC_SERVER_URL` **et** dans `CLIENT_ORIGIN`.
 
 ## Documents
 

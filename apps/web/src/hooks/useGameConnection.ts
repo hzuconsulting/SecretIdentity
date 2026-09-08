@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CLIENT_EVENTS,
   SERVER_EVENTS,
+  gameError,
   type GameError,
   type IconId,
   type IdentityId,
@@ -13,16 +14,19 @@ import {
   type Settings,
   type ToastPayload,
 } from '@identite-secrete/shared';
-import { emitWithAck, getSocket } from '@/lib/socket';
+import { closeCurrent, getNode, type GameNode, type NodeStatus } from '@/lib/net';
 import { clearSession, loadSession, saveSession } from '@/lib/session';
 
 /**
  * Connexion à une partie.
  *
- * Le serveur est la seule source de vérité : ce hook ne calcule aucun état de
- * jeu, il se contente de stocker la dernière `PlayerView` reçue et d'émettre
- * les actions. Aucune mise à jour optimiste — un salon qui affiche un joueur
- * que le serveur ne connaît pas serait pire qu'un demi-seconde d'attente.
+ * Le moteur est la seule source de vérité : ce hook ne calcule aucun état de
+ * jeu, il se contente de stocker la dernière `PlayerView` reçue et d'émettre les
+ * actions. Aucune mise à jour optimiste — un salon qui affiche un joueur que le
+ * moteur ne connaît pas serait pire qu'une demi-seconde d'attente.
+ *
+ * Que le moteur tourne dans cet onglet (on héberge) ou dans celui d'un autre
+ * joueur ne change rien ici : `getNode` rend la même interface des deux côtés.
  */
 
 export type ConnectionStatus =
@@ -31,7 +35,9 @@ export type ConnectionStatus =
   | 'need-nickname'
   | 'joining'
   | 'connected'
-  | 'lost';
+  | 'lost'
+  /** L'hôte a fermé son onglet : la partie ne reviendra pas. */
+  | 'host-gone';
 
 interface Toast extends ToastPayload {
   id: number;
@@ -42,6 +48,8 @@ export interface GameConnection {
   view: PlayerView | null;
   error: GameError | null;
   toasts: Toast[];
+  /** `true` si le moteur de la partie tourne dans cet onglet. */
+  hosting: boolean;
   join: (nickname: string) => Promise<GameError | null>;
   startGame: () => Promise<GameError | null>;
   submitClues: (iconIds: IconId[]) => Promise<GameError | null>;
@@ -54,12 +62,13 @@ export interface GameConnection {
 }
 
 export function useGameConnection(code: string): GameConnection {
+  const [node, setNode] = useState<GameNode | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [view, setView] = useState<PlayerView | null>(null);
   const [error, setError] = useState<GameError | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Évite de relancer une reconnexion pendant qu'une autre est en cours.
+  // Évite de relancer une reprise de session pendant qu'une autre est en cours.
   const rejoining = useRef(false);
 
   const pushToast = useCallback((payload: ToastPayload) => {
@@ -70,46 +79,85 @@ export function useGameConnection(code: string): GameConnection {
     }, 4_000);
   }, []);
 
-  /** Tente de reprendre la session stockée pour ce code. */
-  const restore = useCallback(async (): Promise<void> => {
-    if (rejoining.current) return;
-
-    const session = loadSession(code);
-    if (!session) {
-      setStatus('need-nickname');
-      return;
-    }
-
-    rejoining.current = true;
-    setStatus('restoring');
-
-    const response = await emitWithAck<SessionPayload>(
-      getSocket(),
-      CLIENT_EVENTS.rejoinGame,
-      { sessionToken: session.sessionToken },
-    );
-
-    rejoining.current = false;
-
-    if (response.ok) {
-      setStatus('connected');
-      return;
-    }
-
-    // Session périmée (partie purgée, joueur retiré) : on repart du formulaire
-    // plutôt que de laisser un écran bloqué.
-    if (response.error.code === 'SESSION_NOT_FOUND') {
-      clearSession(code);
-      setStatus('need-nickname');
-      return;
-    }
-
-    setError(response.error);
-    setStatus('lost');
-  }, [code]);
+  // ───────────────────────────────────────────────────────────
+  //  Ouverture du canal
+  // ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const socket = getSocket();
+    let cancelled = false;
+
+    getNode(code)
+      .then((opened) => {
+        if (!cancelled) setNode(opened);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        // Personne n'héberge ce code : l'hôte n'a pas encore créé la partie, il
+        // a fermé son onglet, ou le code a été mal recopié.
+        setError(
+          gameError('GAME_NOT_FOUND', {
+            message:
+              cause instanceof Error && cause.message
+                ? cause.message
+                : "Cette partie n'est plus ouverte.",
+          }),
+        );
+        setStatus('host-gone');
+      });
+
+    // Le nœud n'est **pas** fermé au démontage : il survit à la navigation
+    // entre les écrans, et c'est lui qui héberge la partie quand on est l'hôte.
+    // Il ne se ferme que sur un départ explicite.
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  /** Tente de reprendre la session stockée pour ce code. */
+  const restore = useCallback(
+    async (target: GameNode): Promise<void> => {
+      if (rejoining.current) return;
+
+      const session = loadSession(code);
+      if (!session) {
+        setStatus('need-nickname');
+        return;
+      }
+
+      rejoining.current = true;
+      setStatus('restoring');
+
+      const response = await target.emit<SessionPayload>(CLIENT_EVENTS.rejoinGame, {
+        sessionToken: session.sessionToken,
+      });
+
+      rejoining.current = false;
+
+      if (response.ok) {
+        setStatus('connected');
+        return;
+      }
+
+      // Session périmée (partie abandonnée, joueur retiré) : on repart du
+      // formulaire plutôt que de laisser un écran bloqué.
+      if (response.error.code === 'SESSION_NOT_FOUND') {
+        clearSession(code);
+        setStatus('need-nickname');
+        return;
+      }
+
+      setError(response.error);
+      setStatus('lost');
+    },
+    [code],
+  );
+
+  // ───────────────────────────────────────────────────────────
+  //  Abonnements
+  // ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!node) return;
 
     const handleState = (incoming: PlayerView) => {
       setView(incoming);
@@ -118,41 +166,58 @@ export function useGameConnection(code: string): GameConnection {
 
     const handleToast = (payload: ToastPayload) => pushToast(payload);
     const handleServerError = (payload: GameError) => setError(payload);
+    const handleConnect = () => void restore(node);
 
-    const handleConnect = () => {
-      void restore();
+    const handleNodeStatus = (nodeStatus: NodeStatus) => {
+      if (nodeStatus === 'offline') setStatus('lost');
+      else if (nodeStatus === 'host-gone') setStatus('host-gone');
     };
 
-    const handleDisconnect = () => {
-      setStatus('lost');
-    };
+    node.on(SERVER_EVENTS.stateUpdate, handleState);
+    node.on(SERVER_EVENTS.toast, handleToast);
+    node.on(SERVER_EVENTS.error, handleServerError);
+    node.on('connect', handleConnect);
 
-    socket.on(SERVER_EVENTS.stateUpdate, handleState);
-    socket.on(SERVER_EVENTS.toast, handleToast);
-    socket.on(SERVER_EVENTS.error, handleServerError);
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
+    const unsubscribe = node.onStatus(handleNodeStatus);
 
-    if (socket.connected) void restore();
+    // Le canal est déjà ouvert quand on arrive ici : on reprend la session tout
+    // de suite, sans attendre un `connect` qui n'aura pas lieu.
+    if (node.status === 'online') void restore(node);
 
     return () => {
-      socket.off(SERVER_EVENTS.stateUpdate, handleState);
-      socket.off(SERVER_EVENTS.toast, handleToast);
-      socket.off(SERVER_EVENTS.error, handleServerError);
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
+      node.off(SERVER_EVENTS.stateUpdate, handleState);
+      node.off(SERVER_EVENTS.toast, handleToast);
+      node.off(SERVER_EVENTS.error, handleServerError);
+      node.off('connect', handleConnect);
+      unsubscribe();
     };
-  }, [restore, pushToast]);
+  }, [node, restore, pushToast]);
+
+  // ───────────────────────────────────────────────────────────
+  //  Actions
+  // ───────────────────────────────────────────────────────────
+
+  /** Émission vers le moteur. Sans canal ouvert, l'action échoue proprement. */
+  const send = useCallback(
+    async (event: string, payload: unknown): Promise<GameError | null> => {
+      if (!node) return gameError('INTERNAL_ERROR', { message: 'Connexion en cours…' });
+
+      const response = await node.emit<unknown>(event, payload);
+      return response.ok ? null : response.error;
+    },
+    [node],
+  );
 
   const join = useCallback(
     async (nickname: string): Promise<GameError | null> => {
+      if (!node) return gameError('INTERNAL_ERROR', { message: 'Connexion en cours…' });
+
       setStatus('joining');
 
-      const response = await emitWithAck<SessionPayload>(
-        getSocket(),
-        CLIENT_EVENTS.joinGame,
-        { code, nickname },
-      );
+      const response = await node.emit<SessionPayload>(CLIENT_EVENTS.joinGame, {
+        code,
+        nickname,
+      });
 
       if (!response.ok) {
         setStatus('need-nickname');
@@ -163,60 +228,37 @@ export function useGameConnection(code: string): GameConnection {
       setStatus('connected');
       return null;
     },
-    [code],
+    [code, node],
   );
 
-  const startGame = useCallback(async (): Promise<GameError | null> => {
-    const response = await emitWithAck<null>(getSocket(), CLIENT_EVENTS.startGame, {});
-    return response.ok ? null : response.error;
-  }, []);
+  const startGame = useCallback(() => send(CLIENT_EVENTS.startGame, {}), [send]);
 
   const submitClues = useCallback(
-    async (iconIds: IconId[]): Promise<GameError | null> => {
-      const response = await emitWithAck<null>(getSocket(), CLIENT_EVENTS.submitClues, {
-        iconIds,
-      });
-      return response.ok ? null : response.error;
-    },
-    [],
+    (iconIds: IconId[]) => send(CLIENT_EVENTS.submitClues, { iconIds }),
+    [send],
   );
 
   const submitGuesses = useCallback(
-    async (guesses: Record<Label, IdentityId>): Promise<GameError | null> => {
-      const response = await emitWithAck<null>(getSocket(), CLIENT_EVENTS.submitGuesses, {
-        guesses,
-      });
-      return response.ok ? null : response.error;
-    },
-    [],
+    (guesses: Record<Label, IdentityId>) => send(CLIENT_EVENTS.submitGuesses, { guesses }),
+    [send],
   );
 
-  const replay = useCallback(async (): Promise<GameError | null> => {
-    const response = await emitWithAck<null>(getSocket(), CLIENT_EVENTS.replay, {});
-    return response.ok ? null : response.error;
-  }, []);
-
-  const nextRound = useCallback(async (): Promise<GameError | null> => {
-    const response = await emitWithAck<null>(getSocket(), CLIENT_EVENTS.nextRound, {});
-    return response.ok ? null : response.error;
-  }, []);
+  const replay = useCallback(() => send(CLIENT_EVENTS.replay, {}), [send]);
+  const nextRound = useCallback(() => send(CLIENT_EVENTS.nextRound, {}), [send]);
 
   const updateSettings = useCallback(
-    async (patch: Partial<Settings>): Promise<GameError | null> => {
-      const response = await emitWithAck<null>(
-        getSocket(),
-        CLIENT_EVENTS.updateSettings,
-        patch,
-      );
-      return response.ok ? null : response.error;
-    },
-    [],
+    (patch: Partial<Settings>) => send(CLIENT_EVENTS.updateSettings, patch),
+    [send],
   );
 
   const leave = useCallback(async (): Promise<void> => {
-    await emitWithAck<null>(getSocket(), CLIENT_EVENTS.leave, {});
+    await send(CLIENT_EVENTS.leave, {});
     clearSession(code);
-  }, [code]);
+    // Départ explicite : le nœud se ferme, et l'hôte efface sa sauvegarde pour
+    // qu'une partie terminée ne ressuscite pas au prochain chargement.
+    closeCurrent();
+    setNode(null);
+  }, [code, send]);
 
   const dismissError = useCallback(() => setError(null), []);
 
@@ -225,6 +267,7 @@ export function useGameConnection(code: string): GameConnection {
     view,
     error,
     toasts,
+    hosting: node?.hosting ?? false,
     join,
     startGame,
     submitClues,

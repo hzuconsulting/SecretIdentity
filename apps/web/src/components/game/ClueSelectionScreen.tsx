@@ -32,16 +32,16 @@ const AUTO_SUBMIT_AT_SECONDS = 1;
 /**
  * Sélection des indices.
  *
- * Deux garde-fous côté interface, en plus de la validation serveur :
+ * Deux garde-fous côté interface, en plus de la validation du moteur :
  *  - la sélection est signalée par une bordure **et** une pastille numérotée,
  *    jamais par la couleur seule (§7.4) ;
  *  - la validation demande une confirmation, parce qu'elle est définitive.
  *
  * À une seconde de la fin, le client valide automatiquement la sélection en
- * cours. Ce n'est pas une décision de phase — le serveur reste seul maître du
+ * cours. Ce n'est pas une décision de phase — le moteur reste seul maître du
  * temps — mais une action du joueur, envoyée à sa place. La marge d'une
  * seconde laisse à la requête le temps d'arriver avant l'échéance ; si elle
- * n'y arrive pas, ou si le joueur est déconnecté, le serveur tire une icône
+ * n'y arrive pas, ou si le joueur est déconnecté, le moteur tire une icône
  * de sa main.
  */
 export function ClueSelectionScreen({ view, onSubmit }: ClueSelectionScreenProps) {
