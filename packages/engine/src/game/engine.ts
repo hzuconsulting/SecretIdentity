@@ -4,6 +4,9 @@ import {
   RESULTS_TAIL_MS,
   SCOREBOARD_AUTO_NEXT_MS,
   SERVER_EVENTS,
+  STARTING_HAND_CARDS,
+  TOTAL_ROUNDS,
+  dealPictoCards,
   type Game,
   type Phase,
   type PhaseChangedPayload,
@@ -15,7 +18,8 @@ import { touch } from './factory';
 import { abandonTimerKey, pauseIfNeeded, phaseTimerKey, resumeIfPossible } from './pause';
 import {
   autoSubmitClues,
-  autoSubmitGuesses,
+  autoSubmitVotes,
+  discardPlayedCards,
   isPhaseComplete,
   settleRound,
 } from './roundRules';
@@ -63,18 +67,33 @@ function toMs(seconds: number | null): number | null {
 export class GameEngine {
   constructor(private readonly deps: EngineDeps) {}
 
-  /** Lance la partie : verrouille les réglages et ouvre la manche 1. */
+  /**
+   * Lance la partie : distribue les mains, puis ouvre la manche 1.
+   *
+   * La distribution a lieu **ici et nulle part ailleurs**. Les cartes Picto
+   * accompagnent le joueur sur les quatre manches sans jamais être remplacées :
+   * c'est la ressource qu'il doit gérer, et la recharger en cours de partie
+   * viderait le jeu de sa tension.
+   */
   async start(game: Game): Promise<void> {
     const now = Date.now();
     game.currentRound = 0;
     game.rounds = [];
+
+    for (const player of game.players.values()) {
+      player.hand = dealPictoCards(
+        { cardCount: STARTING_HAND_CARDS, idPrefix: `${player.id}-` },
+        this.deps.rng,
+      );
+    }
+
     logger.info(`Partie ${game.code} lancée (${game.players.size} joueurs)`);
     await this.openRound(game, now);
   }
 
   /** Ouvre la manche suivante, ou termine la partie. */
   async openRound(game: Game, now = Date.now()): Promise<void> {
-    if (game.currentRound >= game.settings.rounds) {
+    if (game.currentRound >= TOTAL_ROUNDS) {
       await this.enterPhase(game, 'FINAL_RESULTS', now);
       return;
     }
@@ -105,13 +124,17 @@ export class GameEngine {
     // Ils sont désactivés lors d'une reprise après pause : rejouer
     // `settleRound` compterait les points une deuxième fois.
     if (applyExitEffects && phase === 'GUESSING' && round) {
-      const forced = autoSubmitClues(round, this.deps.rng);
+      const forced = autoSubmitClues(game, round, this.deps.rng);
       if (forced.length > 0) {
-        logger.debug(`Indices tirés au sort pour ${forced.length} joueur(s) dans ${game.code}`);
+        logger.debug(`Carte tirée au sort pour ${forced.length} joueur(s) dans ${game.code}`);
       }
+      // Les boîtiers sont figés : les cartes jouées quittent définitivement les
+      // mains. Un seul passage, sous le garde `applyExitEffects`, pour qu'une
+      // reprise après pause ne défausse pas deux fois.
+      discardPlayedCards(game, round);
     }
     if (applyExitEffects && phase === 'RESULTS' && round) {
-      autoSubmitGuesses(round);
+      autoSubmitVotes(round);
       settleRound(game, round);
     }
 
@@ -163,9 +186,9 @@ export class GameEngine {
         return toMs(game.settings.guessSeconds);
 
       case 'RESULTS': {
-        // La révélation est séquentielle : sa durée dépend du nombre de séries.
+        // La révélation est séquentielle : sa durée dépend du nombre de boîtiers.
         const round = currentRound(game);
-        const count = round ? Object.keys(round.labelMap).length : 0;
+        const count = round ? round.assignments.size : 0;
         return count * REVEAL_STEP_MS + RESULTS_TAIL_MS;
       }
 

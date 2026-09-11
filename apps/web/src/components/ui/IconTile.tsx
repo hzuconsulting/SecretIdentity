@@ -5,6 +5,12 @@ interface IconTileProps {
   /** Rang de sélection (1, 2, 3…). `null` = non sélectionnée. */
   selectionIndex?: number | null;
   size?: 'sm' | 'md';
+  /**
+   * Remplace l'anneau par défaut — utilisé pour teinter un pictogramme selon sa
+   * zone. On **substitue** au lieu d'ajouter : deux largeurs d'anneau dans la
+   * même classe laisseraient l'ordre du CSS généré trancher, pas nous.
+   */
+  ring?: string;
   className?: string;
 }
 
@@ -23,6 +29,7 @@ export function IconTile({
   icon,
   selectionIndex = null,
   size = 'md',
+  ring,
   className,
 }: IconTileProps) {
   const selected = selectionIndex !== null;
@@ -33,7 +40,7 @@ export function IconTile({
         'relative inline-flex items-center justify-center rounded-tile bg-white',
         'shadow-tile transition-transform duration-150',
         SIZES[size],
-        selected ? 'ring-4 ring-violet' : 'ring-1 ring-ink/5',
+        ring ?? (selected ? 'ring-4 ring-violet' : 'ring-1 ring-ink/5'),
         className,
       ]
         .filter(Boolean)

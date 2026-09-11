@@ -1,31 +1,30 @@
-import type { IdentityId, Label, PlayerId } from './types';
+import type { IdentityId, PlayerId, RoundScoreLine, Slot } from './types';
 
 /**
  * Calcul de score — **fonction pure**.
  *
- * Aucune dépendance à Socket.IO ni à l'état serveur : on entre des données
+ * Aucune dépendance au transport ni à l'état serveur : on entre des données
  * brutes, on sort des points. C'est ce qui rend la règle testable et
  * réutilisable côté client pour l'affichage.
  *
- * Règle (§3.2) :
- *  - « Faire deviner » : +1 par joueur ayant correctement identifié notre
+ * Règle du livret :
+ *  - « Faire deviner » : +1 par adversaire ayant correctement identifié notre
  *    personnage. Maximum N−1.
- *  - « Deviner »       : +1 par identité correctement attribuée. Maximum N−1.
+ *  - « Deviner »       : +1 par personnage adverse correctement identifié.
+ *    Maximum N−1.
  *
- * Un joueur ne devine jamais sa propre série : toute réponse portant sur sa
- * propre étiquette est ignorée (elle ne peut pas rapporter de points).
+ * Un joueur ne vote jamais pour lui-même : un vote portant sur son propre
+ * identifiant est ignoré, il ne peut pas rapporter de points.
  */
 
 export interface RoundScoringInput {
-  /** Étiquette anonyme → joueur qui l'a produite. */
-  labelMap: Record<Label, PlayerId>;
-  /** Joueur → identité qui lui a été attribuée pour la manche. */
-  identityByPlayer: Record<PlayerId, IdentityId>;
+  /** Joueur → le numéro de sa carte Mystère pour la manche. */
+  slotByPlayer: Record<PlayerId, Slot>;
   /**
-   * Joueur → ses réponses (étiquette → identité devinée).
+   * Votant → ses votes (adversaire → numéro proposé).
    * Une case non remplie est simplement absente : elle compte comme fausse.
    */
-  guessesByPlayer: Record<PlayerId, Record<Label, IdentityId>>;
+  votesByPlayer: Record<PlayerId, Record<PlayerId, Slot>>;
 }
 
 export interface PlayerRoundScore {
@@ -36,8 +35,8 @@ export interface PlayerRoundScore {
   guessed: number;
   /** given + guessed */
   total: number;
-  /** Étiquettes correctement devinées par ce joueur. */
-  correctLabels: Label[];
+  /** Adversaires que ce joueur a correctement identifiés. */
+  correctPlayerIds: PlayerId[];
   /** Joueurs ayant correctement identifié ce joueur. */
   guessedByPlayerIds: PlayerId[];
 }
@@ -45,41 +44,38 @@ export interface PlayerRoundScore {
 export type RoundScores = Record<PlayerId, PlayerRoundScore>;
 
 export function scoreRound(input: RoundScoringInput): RoundScores {
-  const { labelMap, identityByPlayer, guessesByPlayer } = input;
+  const { slotByPlayer, votesByPlayer } = input;
 
-  const playerIds = Object.keys(identityByPlayer);
   const scores: RoundScores = {};
 
-  for (const playerId of playerIds) {
+  for (const playerId of Object.keys(slotByPlayer)) {
     scores[playerId] = {
       playerId,
       given: 0,
       guessed: 0,
       total: 0,
-      correctLabels: [],
+      correctPlayerIds: [],
       guessedByPlayerIds: [],
     };
   }
 
-  for (const [guesserId, guesses] of Object.entries(guessesByPlayer)) {
-    const guesserScore = scores[guesserId];
-    if (!guesserScore) continue; // joueur parti en cours de manche
+  for (const [voterId, votes] of Object.entries(votesByPlayer)) {
+    const voterScore = scores[voterId];
+    if (!voterScore) continue; // joueur parti en cours de manche
 
-    for (const [label, guessedIdentityId] of Object.entries(guesses)) {
-      const ownerId = labelMap[label];
-      if (!ownerId) continue; // étiquette inconnue → ignorée
-      if (ownerId === guesserId) continue; // on ne devine jamais sa propre série
+    for (const [targetId, votedSlot] of Object.entries(votes)) {
+      if (targetId === voterId) continue; // on ne vote jamais pour soi
 
-      const trueIdentityId = identityByPlayer[ownerId];
-      if (!trueIdentityId || trueIdentityId !== guessedIdentityId) continue;
+      const trueSlot = slotByPlayer[targetId];
+      if (trueSlot === undefined || trueSlot !== votedSlot) continue;
 
-      guesserScore.guessed += 1;
-      guesserScore.correctLabels.push(label);
+      voterScore.guessed += 1;
+      voterScore.correctPlayerIds.push(targetId);
 
-      const ownerScore = scores[ownerId];
-      if (ownerScore) {
-        ownerScore.given += 1;
-        ownerScore.guessedByPlayerIds.push(guesserId);
+      const targetScore = scores[targetId];
+      if (targetScore) {
+        targetScore.given += 1;
+        targetScore.guessedByPlayerIds.push(voterId);
       }
     }
   }
@@ -96,21 +92,43 @@ export function maxRoundScore(playerCount: number): number {
   return Math.max(0, (playerCount - 1) * 2);
 }
 
+/**
+ * Les joueurs en tête d'un classement déjà trié, départage compris.
+ *
+ * Le livret départage à égalité de points par le **nombre de cartes Picto
+ * gardées**, et s'arrête là : deux joueurs à égalité sur les deux critères
+ * partagent la victoire. Plusieurs identifiants ici signifient donc exactement
+ * ça, et il faut l'afficher comme tel.
+ */
+export function leadersOf(standings: readonly RoundScoreLine[]): PlayerId[] {
+  const best = standings[0];
+  if (!best) return [];
+
+  return standings
+    .filter((line) => line.cumulative === best.cumulative && line.cardsLeft === best.cardsLeft)
+    .map((line) => line.playerId);
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Statistiques de fin de partie (§7.1, écran 10)
 // ─────────────────────────────────────────────────────────────
 
+export interface CumulativeRoundInput extends RoundScoringInput {
+  /** Joueur → le personnage qu'il devait faire deviner dans cette manche. */
+  identityByPlayer: Record<PlayerId, IdentityId>;
+}
+
 export interface CumulativeStatsInput {
   /** Une entrée par manche jouée. */
-  rounds: RoundScoringInput[];
+  rounds: CumulativeRoundInput[];
 }
 
 export interface CumulativeStats {
-  /** Joueur → nombre total d'identités correctement devinées. */
+  /** Joueur → nombre total de personnages correctement devinés. */
   correctGuessesByPlayer: Record<PlayerId, number>;
-  /** Joueur → taux de réussite de SES propres indices, entre 0 et 1. */
+  /** Joueur → taux de réussite de SES propres pictogrammes, entre 0 et 1. */
   successRateByPlayer: Record<PlayerId, number>;
-  /** Identité → taux de réussite, pour repérer « l'indice incompris ». */
+  /** Personnage → taux de réussite, pour repérer « l'indice incompris ». */
   successRateByIdentity: Record<IdentityId, { rate: number; playerId: PlayerId }>;
 }
 
@@ -122,20 +140,20 @@ export function computeCumulativeStats(input: CumulativeStatsInput): CumulativeS
 
   for (const round of input.rounds) {
     const scores = scoreRound(round);
-    const playerCount = Object.keys(round.identityByPlayer).length;
-    const guessersPerLabel = Math.max(1, playerCount - 1);
+    const playerCount = Object.keys(round.slotByPlayer).length;
+    const guessersPerPlayer = Math.max(1, playerCount - 1);
 
     for (const score of Object.values(scores)) {
       correctGuessesByPlayer[score.playerId] =
         (correctGuessesByPlayer[score.playerId] ?? 0) + score.guessed;
 
       found[score.playerId] = (found[score.playerId] ?? 0) + score.given;
-      possible[score.playerId] = (possible[score.playerId] ?? 0) + guessersPerLabel;
+      possible[score.playerId] = (possible[score.playerId] ?? 0) + guessersPerPlayer;
 
       const identityId = round.identityByPlayer[score.playerId];
       if (identityId) {
         successRateByIdentity[identityId] = {
-          rate: score.given / guessersPerLabel,
+          rate: score.given / guessersPerPlayer,
           playerId: score.playerId,
         };
       }

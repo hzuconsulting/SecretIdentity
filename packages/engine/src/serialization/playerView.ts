@@ -1,17 +1,18 @@
 import {
   MIN_PLAYERS,
-  type AnonymousClueSet,
+  TOTAL_ROUNDS,
   type Game,
+  type OpponentCase,
   type PlayerId,
   type PlayerRound,
   type PlayerView,
   type PublicPlayer,
-  type RevealedClueSet,
   type Round,
+  type RoundReveal,
 } from '@identite-secrete/shared';
 import { playersInJoinOrder } from '../game/factory';
 import { buildStandings, buildStats } from './scoreboard';
-import { currentRound, labelOf } from '../game/round';
+import { currentRound, identityOf, opponentIdsFor } from '../game/round';
 
 /**
  * Construction des vues par joueur — le point le plus important du projet (§4.4).
@@ -27,12 +28,12 @@ import { currentRound, labelOf } from '../game/round';
  * Ce que le joueur P reçoit, phase par phase :
  *
  * - `LOBBY` — joueurs, réglages, hôte.
- * - `IDENTITY_REVEAL` — **uniquement sa propre identité**. Ni celles des
- *   autres, ni la liste des identités en jeu.
- * - `CLUE_SELECTION` — sa main, son identité, et la progression **booléenne**
- *   des autres. Jamais leurs mains, leurs indices ni leurs identités.
- * - `GUESSING` — les N−1 séries étiquetées et les N−1 identités hors la
- *   sienne. Jamais la correspondance étiquette → joueur.
+ * - `IDENTITY_REVEAL` — le **plateau** (les huit personnages sont publics, comme
+ *   au centre de la table) et **son seul numéro**. Jamais celui des autres.
+ * - `CLUE_SELECTION` — en plus, sa main de cartes, son boîtier en cours, et la
+ *   progression **booléenne** des autres. Jamais leurs mains ni leurs numéros.
+ * - `GUESSING` — les boîtiers des adversaires, **nommés** : dans les règles, on
+ *   vote en regardant le boîtier posé devant chacun. Toujours pas leurs numéros.
  * - `RESULTS` — tout est révélé.
  * - `SCOREBOARD` / `FINAL_RESULTS` — classement, puis statistiques.
  */
@@ -46,6 +47,9 @@ export function toPublicPlayer(game: Game, playerId: PlayerId): PublicPlayer | n
     id: player.id,
     nickname: player.nickname,
     score: player.score,
+    // Le nombre de cartes restantes, jamais lesquelles : autour d'une table, on
+    // voit bien la main de l'autre fondre sans voir ce qu'elle contient.
+    cardsLeft: player.hand.length,
     connected: player.connected,
     isHost: game.hostId === player.id,
   };
@@ -69,7 +73,7 @@ export function buildPlayerView(
     code: game.code,
     phase: game.phase,
     roundNumber: game.currentRound,
-    totalRounds: game.settings.rounds,
+    totalRounds: TOTAL_ROUNDS,
     phaseEndsAt: round?.phaseEndsAt ?? null,
     serverTime: now,
     settings: { ...game.settings },
@@ -88,23 +92,28 @@ export function buildPlayerView(
 
   switch (game.phase) {
     case 'IDENTITY_REVEAL':
-      addOwnIdentity(view, mine);
+      addBoard(view, round);
+      addOwnIdentity(view, round, playerId, mine);
+      addOwnHand(view, game, playerId, mine);
       break;
 
     case 'CLUE_SELECTION':
-      addOwnIdentity(view, mine);
-      addOwnHand(view, mine);
+      addBoard(view, round);
+      addOwnIdentity(view, round, playerId, mine);
+      addOwnHand(view, game, playerId, mine);
       view.progress = buildProgress(game, round, 'clues');
       break;
 
     case 'GUESSING':
-      addOwnIdentity(view, mine);
-      addGuessingMaterial(view, round, playerId, mine);
-      view.progress = buildProgress(game, round, 'guesses');
+      addBoard(view, round);
+      addOwnIdentity(view, round, playerId, mine);
+      addVotingMaterial(view, game, round, playerId, mine);
+      view.progress = buildProgress(game, round, 'votes');
       break;
 
     case 'RESULTS':
-      addOwnIdentity(view, mine);
+      addBoard(view, round);
+      addOwnIdentity(view, round, playerId, mine);
       view.reveals = buildReveals(game, round);
       view.roundScores = buildStandings(game, round);
       break;
@@ -129,53 +138,81 @@ export function buildPlayerView(
 //  Blocs de la vue
 // ─────────────────────────────────────────────────────────────
 
-function addOwnIdentity(view: PlayerView, mine: PlayerRound | null): void {
-  if (mine) view.yourIdentityId = mine.identityId;
-}
-
-function addOwnHand(view: PlayerView, mine: PlayerRound | null): void {
-  if (!mine) return;
-  view.yourHand = [...mine.hand];
-  view.yourSelectedIcons = [...mine.selectedIcons];
-  view.yourCluesSubmitted = mine.cluesSubmitted;
-}
-
 /**
- * Matériel de la phase de devinette.
+ * Le plateau — **public**.
  *
- * Deux exclusions, toutes deux nécessaires à la règle du §3.1 : le joueur ne
- * voit **ni** sa propre série, **ni** sa propre identité dans la liste des
- * choix. L'appariement demandé est donc une bijection parfaite de N−1 éléments.
- *
- * Les deux listes sont triées : l'ordre ne doit rien apprendre. Trier les
- * identités par identifiant évite qu'elles arrivent dans l'ordre des joueurs.
+ * Les huit personnages sont face visible au centre de la table : les envoyer à
+ * tout le monde n'est pas une fuite, c'est la règle. Ce qui reste secret, c'est
+ * qui porte quel numéro.
  */
-function addGuessingMaterial(
+function addBoard(view: PlayerView, round: Round): void {
+  view.board = [...round.board];
+}
+
+function addOwnIdentity(
   view: PlayerView,
   round: Round,
   playerId: PlayerId,
   mine: PlayerRound | null,
 ): void {
-  const ownLabel = labelOf(round, playerId);
+  if (!mine) return;
+  view.yourSlot = mine.slot;
 
-  const clueSets: AnonymousClueSet[] = Object.keys(round.labelMap)
-    .filter((label) => label !== ownLabel)
-    .sort()
-    .map((label) => {
-      const ownerId = round.labelMap[label];
-      const assignment = ownerId ? round.assignments.get(ownerId) : undefined;
-      return { label, iconIds: [...(assignment?.selectedIcons ?? [])] };
+  const identityId = identityOf(round, playerId);
+  if (identityId) view.yourIdentityId = identityId;
+}
+
+function addOwnHand(
+  view: PlayerView,
+  game: Game,
+  playerId: PlayerId,
+  mine: PlayerRound | null,
+): void {
+  const player = game.players.get(playerId);
+  if (!player) return;
+
+  view.yourHand = player.hand.map((card) => ({ ...card }));
+  view.yourPlaced = (mine?.placed ?? []).map((picto) => ({ ...picto }));
+  view.yourCluesSubmitted = mine?.cluesSubmitted ?? false;
+}
+
+/**
+ * Matériel de la phase de vote.
+ *
+ * Une seule exclusion, contre deux auparavant : on ne vote pas pour soi. Les
+ * **huit** numéros du plateau restent proposables, y compris ceux que personne
+ * ne porte — c'est exactement ce qui empêche de résoudre par élimination quand
+ * on joue à trois.
+ *
+ * Les boîtiers sont **nommés** : le livret fait voter en regardant le boîtier
+ * posé devant chaque joueur. On envoie donc le pseudo avec les pictogrammes,
+ * jamais le numéro.
+ */
+function addVotingMaterial(
+  view: PlayerView,
+  game: Game,
+  round: Round,
+  playerId: PlayerId,
+  mine: PlayerRound | null,
+): void {
+  const opponents: OpponentCase[] = [];
+
+  for (const opponentId of opponentIdsFor(game, round, playerId)) {
+    const assignment = round.assignments.get(opponentId);
+    const opponent = game.players.get(opponentId);
+    if (!assignment || !opponent) continue;
+
+    opponents.push({
+      playerId: opponentId,
+      nickname: opponent.nickname,
+      // Seulement l'image et la zone : la carte d'origine ne sort jamais.
+      placed: assignment.placed.map(({ iconId, zone }) => ({ iconId, zone })),
     });
+  }
 
-  const identityChoices = [...round.assignments.values()]
-    .map((assignment) => assignment.identityId)
-    .filter((identityId) => identityId !== mine?.identityId)
-    .sort();
-
-  view.clueSets = clueSets;
-  view.identityChoices = identityChoices;
-  view.yourGuesses = { ...(mine?.guesses ?? {}) };
-  view.yourGuessesSubmitted = mine?.guessesSubmitted ?? false;
+  view.opponents = opponents;
+  view.yourVotes = { ...(mine?.votes ?? {}) };
+  view.yourVotesSubmitted = mine?.votesSubmitted ?? false;
 }
 
 /**
@@ -188,7 +225,7 @@ function addGuessingMaterial(
 function buildProgress(
   game: Game,
   round: Round,
-  kind: 'clues' | 'guesses',
+  kind: 'clues' | 'votes',
 ): PlayerView['progress'] {
   const progress: NonNullable<PlayerView['progress']> = [];
 
@@ -199,51 +236,48 @@ function buildProgress(
     progress.push({
       playerId: player.id,
       nickname: player.nickname,
-      submitted: kind === 'clues' ? assignment.cluesSubmitted : assignment.guessesSubmitted,
+      submitted: kind === 'clues' ? assignment.cluesSubmitted : assignment.votesSubmitted,
     });
   }
 
   return progress;
 }
 
-/** Phase RESULTS : tout est révélé, la correspondance étiquette → joueur incluse. */
-function buildReveals(game: Game, round: Round): RevealedClueSet[] {
+/** Phase RESULTS : tout est révélé, le numéro de chacun inclus. */
+function buildReveals(game: Game, round: Round): RoundReveal[] {
   const possibleGuessers = Math.max(0, round.assignments.size - 1);
 
-  return Object.keys(round.labelMap)
-    .sort()
-    .flatMap((label): RevealedClueSet[] => {
-      const ownerId = round.labelMap[label];
-      if (!ownerId) return [];
+  const reveals: RoundReveal[] = [];
 
-      const assignment = round.assignments.get(ownerId);
-      if (!assignment) return [];
+  for (const [playerId, assignment] of round.assignments) {
+    const identityId = identityOf(round, playerId);
+    if (!identityId) continue;
 
-      // Le joueur a pu quitter en cours de manche : sa série est révélée quand
-      // même (§9, « la manche se termine normalement »), sous un nom générique.
-      const owner = game.players.get(ownerId);
-      const nickname = owner?.nickname ?? 'Joueur parti';
+    // Le joueur a pu quitter — ou être exclu — en cours de manche : son boîtier
+    // est révélé quand même (§9, « la manche se termine normalement »), sous un
+    // nom générique.
+    const owner = game.players.get(playerId);
 
-      const guessedByPlayerIds: PlayerId[] = [];
-      for (const [guesserId, other] of round.assignments) {
-        if (guesserId === ownerId) continue;
-        if (other.guesses[label] === assignment.identityId) {
-          guessedByPlayerIds.push(guesserId);
-        }
-      }
+    const guessedByPlayerIds: PlayerId[] = [];
+    for (const [voterId, other] of round.assignments) {
+      if (voterId === playerId) continue;
+      if (other.votes[playerId] === assignment.slot) guessedByPlayerIds.push(voterId);
+    }
 
-      return [
-        {
-          label,
-          playerId: ownerId,
-          nickname,
-          identityId: assignment.identityId,
-          iconIds: [...assignment.selectedIcons],
-          guessedByPlayerIds,
-          possibleGuessers,
-        },
-      ];
+    reveals.push({
+      playerId,
+      nickname: owner?.nickname ?? 'Joueur parti',
+      slot: assignment.slot,
+      identityId,
+      placed: assignment.placed.map(({ iconId, zone }) => ({ iconId, zone })),
+      guessedByPlayerIds,
+      possibleGuessers,
     });
+  }
+
+  // Ordre stable et sans information : par numéro croissant, comme on
+  // dépouillerait le plateau de gauche à droite.
+  return reveals.sort((a, b) => a.slot - b.slot);
 }
 
 // ─────────────────────────────────────────────────────────────

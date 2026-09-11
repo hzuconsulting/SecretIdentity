@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { type PlayerView, type RoundScoreLine } from '@identite-secrete/shared';
+import { leadersOf, type PlayerView, type RoundScoreLine } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
@@ -47,8 +47,13 @@ export function ScoreboardScreen({ view, onNextRound }: ScoreboardScreenProps) {
               {medals[index] ?? index + 1}
             </span>
             <PlayerAvatar playerId={line.playerId} nickname={line.nickname} size="sm" />
-            <span className="min-w-0 flex-1 truncate font-display text-lg font-extrabold">
-              {line.nickname}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-lg font-extrabold">
+                {line.nickname}
+              </span>
+              <span className="text-xs font-semibold text-muted">
+                {line.cardsLeft} carte{line.cardsLeft > 1 ? 's' : ''} en main
+              </span>
             </span>
             <span className="font-display text-xl font-black tabular-nums">
               {line.cumulative}
@@ -86,8 +91,13 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
   const reduceMotion = useReducedMotion();
   const { play } = useSound();
   const standings = view.standings ?? [];
-  const winner = standings[0];
   const stats = view.stats;
+
+  // Départage du livret : à égalité de points, le plus de cartes Picto gardées ;
+  // si ça ne suffit pas, la victoire est partagée — et doit se lire comme telle.
+  const leaderIds = leadersOf(standings);
+  const winners = standings.filter((line) => leaderIds.includes(line.playerId));
+  const shared = winners.length > 1;
 
   useEffect(() => {
     play('win');
@@ -97,7 +107,7 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
     <PhaseShell view={view} title="Fin de partie" hideTimer>
       <PhaseAnnouncement label="La partie est terminée." />
 
-      {winner ? (
+      {winners.length > 0 ? (
         <motion.div
           initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -113,10 +123,11 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
             🏆
           </motion.p>
           <p className="mt-2 font-display text-3xl font-black text-white">
-            {winner.nickname}
+            {winners.map((line) => line.nickname).join(' & ')}
           </p>
           <p className="font-display text-sm font-extrabold uppercase tracking-widest text-sun">
-            {winner.cumulative} points
+            {winners[0]?.cumulative} points
+            {shared ? ' · victoire partagée' : ''}
           </p>
         </motion.div>
       ) : null}
@@ -193,11 +204,16 @@ function ScoreTable({ lines }: { lines: RoundScoreLine[] }) {
             </div>
             <p className="text-muted">
               Faire deviner&nbsp;: +{line.given} · Bonnes réponses&nbsp;: +{line.guessed} ·
-              Total&nbsp;: +{line.total}
+              Cartes gardées&nbsp;: {line.cardsLeft}
             </p>
           </li>
         ))}
       </ul>
+
+      <p className="mt-3 text-xs font-semibold text-muted">
+        À égalité de points, c’est le joueur ayant gardé le plus de cartes Picto qui
+        l’emporte.
+      </p>
     </section>
   );
 }

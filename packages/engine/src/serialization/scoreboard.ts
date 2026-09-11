@@ -8,6 +8,8 @@ import {
   type RoundScoreLine,
 } from '@identite-secrete/shared';
 import { playersInJoinOrder } from '../game/factory';
+import { identityOf } from '../game/round';
+import { roundScoringInput } from '../game/roundRules';
 
 /**
  * Classements et statistiques de fin de partie.
@@ -21,6 +23,10 @@ import { playersInJoinOrder } from '../game/factory';
 /**
  * Classement cumulé, décroissant.
  * `round` sert à afficher les points gagnés dans la manche écoulée.
+ *
+ * Départage du livret : à égalité de points, **celui qui a gardé le plus de
+ * cartes Picto** l'emporte ; si l'égalité persiste, les joueurs partagent la
+ * victoire — ce que l'ordre traduit en les laissant côte à côte.
  */
 export function buildStandings(game: Game, round: Round | null): RoundScoreLine[] {
   const lines: RoundScoreLine[] = [];
@@ -37,24 +43,24 @@ export function buildStandings(game: Game, round: Round | null): RoundScoreLine[
       guessed,
       total: given + guessed,
       cumulative: player.score,
+      cardsLeft: player.hand.length,
     });
   }
 
-  return lines.sort((a, b) => b.cumulative - a.cumulative);
+  return lines.sort((a, b) => b.cumulative - a.cumulative || b.cardsLeft - a.cardsLeft);
 }
 
 /** Statistiques de fin de partie, calculées sur toutes les manches jouées. */
 export function buildStats(game: Game): GameStats {
   const rounds = game.rounds.map((round) => {
     const identityByPlayer: Record<string, string> = {};
-    const guessesByPlayer: Record<string, Record<string, string>> = {};
 
-    for (const [playerId, assignment] of round.assignments) {
-      identityByPlayer[playerId] = assignment.identityId;
-      guessesByPlayer[playerId] = assignment.guesses;
+    for (const playerId of round.assignments.keys()) {
+      const identityId = identityOf(round, playerId);
+      if (identityId) identityByPlayer[playerId] = identityId;
     }
 
-    return { labelMap: round.labelMap, identityByPlayer, guessesByPlayer };
+    return { ...roundScoringInput(round), identityByPlayer };
   });
 
   const stats = computeCumulativeStats({ rounds });

@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/engine && tsc --noEmit -p apps/web",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node scripts/e2e-partie.mjs"
+    "test:e2e": "node scripts/e2e-partie.mjs",
+    "test:e2e:manche": "node scripts/e2e-manche.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -1,82 +1,78 @@
-import type { GameErrorCode, IdentityId, Label } from '@identite-secrete/shared';
+import { BOARD_SIZE, type GameErrorCode, type PlayerId, type Slot } from '@identite-secrete/shared';
 
 /**
- * Validation d'une soumission de devinettes.
+ * Validation d'un jeu de votes.
  *
- * Les règles tranchées du §3.1, appliquées côté serveur parce qu'un client
- * modifié pourrait toutes les contourner :
- *  - le joueur ne devine **jamais** sa propre série : son étiquette n'est pas
- *    dans les étiquettes autorisées ;
- *  - il ne peut proposer que des identités du sous-ensemble autorisé, qui
- *    exclut la sienne ;
- *  - une identité ne sert **qu'une fois** : l'appariement est une bijection.
+ * Les règles du livret, appliquées côté hôte parce qu'un client modifié
+ * pourrait toutes les contourner :
+ *  - on vote pour ses **adversaires**, jamais pour soi ;
+ *  - le numéro proposé existe sur le plateau (1 à `BOARD_SIZE`) ;
+ *  - **un numéro ne sert qu'une fois** : chaque joueur n'a qu'une seule carte
+ *    Vote de chaque chiffre.
  *
  * Les réponses **partielles sont acceptées**. L'interface, elle, n'autorise la
  * validation manuelle que lorsque toutes les cases sont remplies ; mais à
  * l'expiration du minuteur le client envoie ce qu'il a, et une case vide doit
- * pouvoir rester vide (= réponse fausse) plutôt que d'être perdue ou remplie
- * au hasard (§3.1).
+ * pouvoir rester vide (= vote perdu) plutôt que d'être remplie au hasard.
  *
  * Fonction pure : testable sans réseau ni partie en mémoire.
  */
 
-export type GuessValidation =
-  | { ok: true; guesses: Record<Label, IdentityId> }
+export type VoteValidation =
+  | { ok: true; votes: Record<PlayerId, Slot> }
   | { ok: false; code: GameErrorCode; message?: string };
 
-export function validateGuessSubmission(
-  guesses: Record<string, string>,
-  allowedLabels: readonly Label[],
-  allowedIdentityIds: readonly IdentityId[],
-): GuessValidation {
-  const labels = new Set(allowedLabels);
-  const identities = new Set(allowedIdentityIds);
-  const entries = Object.entries(guesses);
+export function validateVotes(
+  votes: Record<string, number>,
+  opponentIds: readonly PlayerId[],
+): VoteValidation {
+  const allowed = new Set(opponentIds);
+  const entries = Object.entries(votes);
 
-  if (entries.length > allowedLabels.length) {
+  if (entries.length > opponentIds.length) {
     return {
       ok: false,
       code: 'INVALID_GUESS',
-      message: 'Il y a plus de réponses que de séries à deviner.',
+      message: 'Il y a plus de votes que d’adversaires.',
     };
   }
 
-  for (const [label, identityId] of entries) {
-    if (!labels.has(label)) {
+  for (const [targetId, slot] of entries) {
+    if (!allowed.has(targetId)) {
       return {
         ok: false,
         code: 'INVALID_GUESS',
-        message: `La série ${label} ne fait pas partie de celles que tu dois deviner.`,
+        message: 'Tu ne peux voter que pour les autres joueurs.',
       };
     }
 
-    if (!identities.has(identityId)) {
+    if (!Number.isInteger(slot) || slot < 1 || slot > BOARD_SIZE) {
       return {
         ok: false,
         code: 'INVALID_GUESS',
-        message: 'Cette identité ne fait pas partie des choix proposés.',
+        message: 'Ce numéro n’est pas sur le plateau.',
       };
     }
   }
 
-  const used = entries.map(([, identityId]) => identityId);
+  const used = entries.map(([, slot]) => slot);
   if (new Set(used).size !== used.length) {
     return {
       ok: false,
       code: 'INVALID_GUESS',
-      message: 'Une identité ne peut être attribuée qu’une seule fois.',
+      message: 'Tu n’as qu’une carte Vote par numéro.',
     };
   }
 
-  return { ok: true, guesses: Object.fromEntries(entries) };
+  return { ok: true, votes: Object.fromEntries(entries) };
 }
 
-/** Deux jeux de réponses identiques. */
-export function sameGuesses(
-  a: Record<Label, IdentityId>,
-  b: Record<Label, IdentityId>,
+/** Deux jeux de votes identiques. */
+export function sameVotes(
+  a: Record<PlayerId, Slot>,
+  b: Record<PlayerId, Slot>,
 ): boolean {
   const keysA = Object.keys(a);
   if (keysA.length !== Object.keys(b).length) return false;
-  return keysA.every((label) => a[label] === b[label]);
+  return keysA.every((playerId) => a[playerId] === b[playerId]);
 }

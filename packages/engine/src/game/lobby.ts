@@ -19,14 +19,22 @@ import { playersInJoinOrder, takenNicknames, touch } from './factory';
 export type JoinRejection =
   | { reason: 'GAME_ALREADY_STARTED' }
   | { reason: 'GAME_FULL' }
+  | { reason: 'KICKED' }
   | { reason: 'NICKNAME_TAKEN'; suggestion: string };
 
 /**
  * Vérifie qu'un joueur peut rejoindre. Retourne `null` si c'est bon.
- * L'ordre des contrôles est celui du §4.3 : partie commencée, puis salon
+ * L'ordre des contrôles est celui du §4.3 : exclusion, partie commencée, salon
  * plein, puis pseudo — le message le plus utile en premier.
+ *
+ * Le contrôle d'exclusion passe en premier pour que la réponse soit franche :
+ * un exclu doit lire « tu as été exclu », pas « ce pseudo est pris ».
  */
 export function checkCanJoin(game: Game, nickname: string): JoinRejection | null {
+  if (game.bannedNicknames.has(nickname.toLowerCase())) {
+    return { reason: 'KICKED' };
+  }
+
   if (game.phase !== 'LOBBY') {
     return { reason: 'GAME_ALREADY_STARTED' };
   }
@@ -41,6 +49,18 @@ export function checkCanJoin(game: Game, nickname: string): JoinRejection | null
   }
 
   return null;
+}
+
+/**
+ * Bannit le pseudo d'un joueur exclu, pour qu'il ne revienne pas aussitôt.
+ *
+ * C'est tout ce qu'on peut faire en pair à pair : sans serveur ni compte, il
+ * n'existe aucune identité d'appareil, et rien n'empêche un exclu de revenir
+ * sous un autre pseudo. Limite assumée — l'exclusion règle le cas du joueur
+ * gênant, pas celui de l'acharné.
+ */
+export function banNickname(game: Game, player: Player): void {
+  game.bannedNicknames.add(player.nickname.toLowerCase());
 }
 
 export function addPlayer(game: Game, player: Player, now: number): void {

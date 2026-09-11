@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 interface IdentityCardProps {
   identityName: string;
+  /** Le numéro de la carte Mystère. Masqué en même temps que le nom. */
+  slot?: number | null;
   compact?: boolean;
 }
 
@@ -17,7 +19,11 @@ interface IdentityCardProps {
  *
  * Équivalent clavier : maintien de la barre d'espace, bouton focalisé.
  */
-export function IdentityCard({ identityName, compact = false }: IdentityCardProps) {
+export function IdentityCard({
+  identityName,
+  slot = null,
+  compact = false,
+}: IdentityCardProps) {
   const [masked, setMasked] = useState(false);
   const [peeking, setPeeking] = useState(false);
 
@@ -50,18 +56,25 @@ export function IdentityCard({ identityName, compact = false }: IdentityCardProp
         ].join(' ')}
       >
         <p className="font-display text-[0.7rem] font-extrabold uppercase tracking-[0.22em] text-sun">
-          Ton identité
+          Ta carte Mystère
         </p>
 
         {visible ? (
-          <p
-            className={[
-              'mt-2 break-words font-display font-black text-white',
-              compact ? 'text-2xl' : 'text-4xl leading-tight',
-            ].join(' ')}
-          >
-            {identityName}
-          </p>
+          <>
+            {slot !== null ? (
+              <p className="mt-1 font-display text-sm font-extrabold uppercase tracking-widest text-white/60">
+                Numéro {slot}
+              </p>
+            ) : null}
+            <p
+              className={[
+                'mt-2 break-words font-display font-black text-white',
+                compact ? 'text-2xl' : 'text-4xl leading-tight',
+              ].join(' ')}
+            >
+              {identityName}
+            </p>
+          </>
         ) : (
           <p
             className={[
@@ -69,7 +82,7 @@ export function IdentityCard({ identityName, compact = false }: IdentityCardProp
               compact ? 'text-xl' : 'text-3xl',
             ].join(' ')}
           >
-            Identité masquée
+            Carte masquée
           </p>
         )}
       </div>
@@ -101,7 +114,7 @@ export function IdentityCard({ identityName, compact = false }: IdentityCardProp
           onClick={() => setMasked(true)}
           className="min-h-[44px] font-display text-xs font-extrabold uppercase tracking-widest text-muted"
         >
-          👁 Masquer mon identité
+          👁 Masquer ma carte
         </button>
       )}
     </div>

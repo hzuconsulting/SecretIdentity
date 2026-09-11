@@ -12,6 +12,15 @@ import { TEST_GRACE_MS, TestClient, startTestServer, wait, type TestHost } from 
  * Cas limites du §9 et robustesse générale (Lot 5).
  */
 
+/** Le boîtier des `count` premières cartes de la main, en zone verte. */
+function placedOf(client: TestClient, count = 2) {
+  return client.lastView.yourHand!.slice(0, count).map((card) => ({
+    cardId: card.id,
+    iconId: card.front,
+    zone: 'green' as const,
+  }));
+}
+
 let server: TestHost;
 let clients: TestClient[] = [];
 
@@ -81,7 +90,7 @@ describe('mise en pause sous 3 joueurs', () => {
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
-      iconIds: host.lastView.yourHand!.slice(0, 2),
+      placed: placedOf(host),
     });
 
     expect(response.ok).toBe(false);
@@ -128,9 +137,9 @@ describe('mise en pause sous 3 joueurs', () => {
   it('conserve les soumissions déjà faites après une reprise', async () => {
     const { code, players } = await startedGame();
     const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
-    const chosen = host.lastView.yourHand!.slice(0, 2);
+    const chosen = placedOf(host);
 
-    await host.emit(CLIENT_EVENTS.submitClues, { iconIds: chosen });
+    await host.emit(CLIENT_EVENTS.submitClues, { placed: chosen });
     malo.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
@@ -141,7 +150,7 @@ describe('mise en pause sous 3 joueurs', () => {
 
     const game = await server.store.get(code);
     const assignment = game!.rounds[0]!.assignments.get(host.session!.playerId)!;
-    expect(assignment.selectedIcons).toEqual(chosen);
+    expect(assignment.placed).toEqual(chosen);
     expect(assignment.cluesSubmitted).toBe(true);
   });
 
@@ -150,9 +159,7 @@ describe('mise en pause sous 3 joueurs', () => {
     const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
 
     for (const client of players) {
-      await client.emit(CLIENT_EVENTS.submitClues, {
-        iconIds: client.lastView.yourHand!.slice(0, 2),
-      });
+      await client.emit(CLIENT_EVENTS.submitClues, { placed: placedOf(client) });
     }
     for (const client of players) {
       await client.waitForView((v) => v.phase === 'GUESSING', 'devinette', 4_000);
@@ -161,11 +168,11 @@ describe('mise en pause sous 3 joueurs', () => {
     // Réponses parfaites pour Sarah, puis pause et reprise en pleine phase.
     const game = await server.store.get(code);
     const round = game!.rounds[0]!;
-    const guesses: Record<string, string> = {};
-    for (const clueSet of host.lastView.clueSets ?? []) {
-      guesses[clueSet.label] = round.assignments.get(round.labelMap[clueSet.label]!)!.identityId;
+    const votes: Record<string, number> = {};
+    for (const opponent of host.lastView.opponents ?? []) {
+      votes[opponent.playerId] = round.assignments.get(opponent.playerId)!.slot;
     }
-    await host.emit(CLIENT_EVENTS.submitGuesses, { guesses });
+    await host.emit(CLIENT_EVENTS.submitGuesses, { votes });
 
     malo.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
@@ -197,9 +204,7 @@ describe('joueur qui quitte en cours de manche', () => {
     ];
 
     for (const client of [host, allan, malo, zoe]) {
-      await client.emit(CLIENT_EVENTS.submitClues, {
-        iconIds: client.lastView.yourHand!.slice(0, 2),
-      });
+      await client.emit(CLIENT_EVENTS.submitClues, { placed: placedOf(client) });
     }
     for (const client of [host, allan]) {
       await client.waitForView((v) => v.phase === 'GUESSING', 'devinette', 4_000);
@@ -348,7 +353,7 @@ describe('robustesse générale', () => {
       expect(response.ok).toBe(false);
     }
 
-    const valid = await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 8 });
+    const valid = await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 45 });
     expect(valid.ok).toBe(true);
   });
 
@@ -362,7 +367,7 @@ describe('robustesse générale', () => {
       CLIENT_EVENTS.nextRound,
       CLIENT_EVENTS.replay,
     ]) {
-      const response = await client.emit(event, { iconIds: ['fire'], guesses: {} });
+      const response = await client.emit(event, { placed: [], votes: {} });
       expect(response.ok, event).toBe(false);
       if (!response.ok) expect(response.error.code).toBe('SESSION_NOT_FOUND');
     }

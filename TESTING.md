@@ -12,16 +12,19 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 165 tests
+### Couverture — 196 tests
 
-**`scoring.test.ts`** — le calcul de score du §3.2
-- 3 joueurs : personne ne trouve · tout le monde trouve · réponses partielles
+**`scoring.test.ts`** — le calcul de score
+- 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
 - 8 joueurs : plafond à N−1 dans chaque colonne
-- une réponse portant sur sa propre étiquette est ignorée
-- une étiquette inconnue est ignorée
-- un joueur absent du round n'écrit rien
+- un vote pour soi-même est ignoré
+- un vote pour un joueur inconnu est ignoré
+- **un vote sur un leurre ne rapporte rien** : le numéro existe, mais personne ne le porte
+- un joueur absent de la manche n'écrit rien
 - aucune mutation de l'objet d'entrée
 - agrégation des statistiques de fin de partie
+- `leadersOf` : départage aux cartes gardées, et victoire partagée quand les deux
+  critères restent à égalité
 
 **`game-logic.test.ts`** — les données et les tirages
 - catalogue d'identités : ≥ 200, aucun id ni nom en double, 11 catégories,
@@ -31,6 +34,11 @@ npm run typecheck   # tsc --noEmit sur shared, engine et client
 - `dealHand` : taille exacte, aucun doublon, quotas respectés sur **50 graines**,
   déterminisme à graine égale, divergence à graines différentes, échec franc sur
   catalogue trop petit
+- `dealPictoCards` : 10 cartes à deux faces distinctes, aucun pictogramme répété dans une
+  main, identifiants préfixés par joueur, déterminisme, échec franc sur catalogue trop
+  petit
+- le catalogue suffit aux règles : assez de personnages pour 4 manches × 8 dans **chaque**
+  difficulté, assez de pictogrammes pour huit mains complètes
 - `drawIdentities` : identités distinctes, filtre de difficulté, non-réutilisation sur
   5 manches consécutives, réinitialisation contrôlée quand le pool est épuisé
 - codes de partie : format, absence de `0/O/1/I` sur 2 000 tirages, 500 codes uniques
@@ -39,8 +47,10 @@ npm run typecheck   # tsc --noEmit sur shared, engine et client
 **`contracts.test.ts`** — les schémas Zod et l'affichage
 - pseudo nettoyé, vide refusé, trop long refusé
 - code de partie normalisé (` k7p-4q ` → `K7P4Q`)
-- **toutes** les options du salon du §3.3 acceptées, toute valeur hors options refusée
-- sélection d'indices vide refusée
+- **toutes** les options du salon acceptées, toute valeur hors options refusée
+- boîtier vide refusé, zone inconnue refusée, plafond de la règle laissé au moteur
+- votes bornés aux numéros du plateau (1 à 8, entiers)
+- demande d'exclusion validée
 - décomptes, couleurs d'avatar stables, suggestion de pseudo (`Sarah` → `Sarah2`)
 
 **`lobby.test.ts`** — intégration, avec de vrais clients parlant à un vrai `GameHost`
@@ -65,9 +75,13 @@ raccourcies (120 ms et
   ancien (un joueur plus ancien mais déconnecté est sauté)
 - *confidentialité* : le `sessionToken` d'un joueur n'apparaît dans **aucun** payload reçu
   par un autre (le client de test capture tout via `onAny`, pas seulement les événements
-  attendus) ; aucune vue ne contient `sessionToken`, `labelMap`, `connectionId` ni
-  `usedIdentityIds` ; un joueur public n'expose exactement que `id`, `nickname`, `score`,
+  attendus) ; aucune vue ne contient `sessionToken`, `connectionId` ni `usedIdentityIds` ;
+  un joueur public n'expose exactement que `id`, `nickname`, `score`, `cardsLeft`,
   `connected`, `isHost`
+- *exclusion par l'hôte* : le joueur est retiré et prévenu personnellement, son retour est
+  refusé par jeton **et** par pseudo (quelle que soit la casse), un nouveau venu entre
+  normalement, `NOT_HOST` pour un invité, l'hôte ne peut pas s'exclure lui-même, le geste
+  est idempotent, et la partie disparaît quand il ne reste plus personne
 - *robustesse* : action sans session refusée proprement, double départ idempotent,
   payload malformé ignoré sans fermer la connexion
 
@@ -77,54 +91,67 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 
 - *lancement* : refusé sous 3 joueurs, refusé pour un non-hôte, réglages verrouillés dès
   le départ, double lancement rejeté
-- *attribution* : identités distinctes pour 4 joueurs, mains à la bonne taille et sans
-  doublon, étiquettes `A`–`D` distinctes, aucune identité réutilisée d'une manche à l'autre
+- *attribution* : **plateau de 8 personnages** quel que soit le nombre de joueurs,
+  personnages distincts pour 4 joueurs, main de 10 cartes par joueur, numéros attribués
+  distincts et dans les bornes, aucun personnage réutilisé d'une manche à l'autre
 - *transitions* : `IDENTITY_REVEAL → CLUE_SELECTION` automatique et annoncée dans cet
   ordre, échéance cohérente avec l'horloge de l'hôte, **échéance identique pour tous les
   joueurs**, pas d'échéance au salon, `round:next` par l'hôte depuis le classement,
-  `round:next` refusé hors phase et pour un non-hôte, partie complète de 3 manches
+  `round:next` refusé hors phase et pour un non-hôte, partie complète de **4 manches**
   jusqu'à `FINAL_RESULTS` avec classement et statistiques
-- *confidentialité en manche* : aucun payload reçu par un joueur ne contient l'identité
-  d'un autre (instantané figé pendant `CLUE_SELECTION`, avant que `RESULTS` ne révèle
-  tout légitimement) ; `labelMap` n'apparaît nulle part ; `clueSets` n'existe qu'en
-  `GUESSING` et ne porte que `label` et `iconIds` ; chaque joueur reçoit sa propre main
-  et pas celle des autres ; la progression ne contient que des booléens
-- *reconnexion en manche* : phase, identité, main, numéro de manche et **échéance**
+- *confidentialité en manche* : le plateau est public — c'est la règle — mais un joueur ne
+  reçoit **que son propre numéro**, et aucune vue ne porte `reveals` avant `RESULTS` ;
+  `opponents` n'existe qu'en `GUESSING` et ne porte que `playerId`, `nickname` et
+  `placed`, chaque pictogramme adverse se réduisant à `iconId` et `zone` ; chaque joueur
+  reçoit sa propre main et **aucune carte d'un autre ne transite par son canal** ; la
+  progression ne contient que des booléens
+- *reconnexion en manche* : phase, personnage, main, numéro de manche et **échéance**
   restaurés à l'identique
 
-**`clues.test.ts`** — intégration, sélection et validation des indices.
+**`clues.test.ts`** — intégration, remplissage et validation du boîtier.
 
-- *soumission valide* : sélection enregistrée et renvoyée au joueur ; progression visible
-  chez les autres **sans que leurs icônes fuitent** (vérifié sur tous les payloads reçus) ;
-  un seul indice accepté ; la phase se conclut dès que les trois joueurs ont validé, sans
-  attendre le minuteur
-- *anti-triche* : icône absente de la main refusée, icône **piochée dans la main d'un
-  autre joueur** refusée, dépassement du maximum refusé, sélection vide refusée, doublon
-  refusé, et surtout : **une validation qui échoue n'écrit rien** dans l'état du moteur
+- *distribution* : 10 cartes par joueur, deux pictogrammes distincts par carte,
+  identifiants uniques, aucun pictogramme répété dans une main
+- *soumission valide* : boîtier enregistré et renvoyé au joueur ; mélange vert / rouge
+  accepté ; progression visible chez les autres **sans que leurs pictogrammes fuitent**
+  (vérifié sur tous les payloads reçus) ; un seul pictogramme accepté ; la phase se
+  conclut dès que les trois joueurs ont validé, sans attendre le minuteur
+- *la main s'épuise* : les cartes jouées sont défaussées et **jamais remplacées** ; une
+  carte de la manche précédente est refusée à la suivante ; les autres joueurs voient le
+  **nombre** de cartes restantes, jamais lesquelles
+- *anti-triche* : carte absente de la main refusée, carte **d'un autre joueur** refusée,
+  pictogramme qui n'est pas sur la carte annoncée refusé, dépassement de 3 refusé, boîtier
+  vide refusé, carte posée deux fois refusée, zone inconnue refusée, et surtout : **une
+  validation qui échoue n'écrit rien** — main comprise
 - *idempotence* : deux soumissions identiques (ordre inversé) réussissent sans effet de
   bord ; changer d'avis après validation est refusé ; une soumission arrivée après la
   phase renvoie `TOO_LATE` avec « Trop tard ! »
-- *validation automatique* : une icône de sa propre main est tirée au sort pour qui n'a
-  rien envoyé ; la sélection de ceux qui avaient validé est conservée ; chaque joueur se
-  retrouve avec N−1 séries **non vides** à deviner
+- *validation automatique* : une carte de sa propre main est tirée au sort, face comprise,
+  pour qui n'a rien posé ; le boîtier de ceux qui avaient validé est conservé ; chaque
+  joueur se retrouve avec N−1 boîtiers **non vides** et les 8 numéros
+- *exclusion en cours de manche* : exclure le dernier joueur attendu conclut la phase ; en
+  pleine phase de vote, la manche se termine et le boîtier de l'exclu est révélé sous
+  « Joueur parti »
 - *déconnexion en pleine sélection* : le départ du dernier joueur attendu conclut la
-  phase au lieu de la bloquer ; une sélection déjà validée est restaurée à la reconnexion
+  phase au lieu de la bloquer ; un boîtier déjà validé est restauré à la reconnexion
 
-**`guesses.test.ts`** — intégration, devinette, scores et rejouer. Les tests lisent
-`labelMap` directement dans le store pour composer des réponses justes ou fausses ; les
-**clients**, eux, ne la reçoivent jamais.
+**`guesses.test.ts`** — intégration, vote, scores et rejouer. Les tests lisent les numéros
+directement dans le store pour composer des votes justes ou faux ; les **clients**, eux,
+ne les reçoivent jamais.
 
-- *matériel* : N−1 séries et N−1 identités, la sienne exclue des deux ; listes triées
-- *validation* : appariement complet accepté, appariement partiel accepté, deux fois la
-  même identité refusée, **deviner sa propre série refusée**, **proposer sa propre
-  identité refusée**, identité inconnue refusée, et un échec n'écrit rien
+- *matériel* : adversaires nommés, soi-même exclu ; **8 numéros proposés à 3 joueurs**,
+  dont 5 leurres ; aucun champ n'associe un adversaire à un numéro
+- *validation* : vote complet accepté, vote partiel accepté, **leurre accepté** (valide,
+  simplement faux), deux fois le même numéro refusé, **voter pour soi refusé**, joueur
+  inconnu refusé, numéro hors plateau refusé, et un échec n'écrit rien
 - *idempotence* : deux soumissions identiques réussissent, un changement d'avis est refusé
-- *scores* : maximum quand tout le monde trouve tout (+2 / +2 à trois joueurs) ; zéro
-  partout quand personne ne répond ; **cas mixte** — Sarah répond juste, Allan inverse ses
-  deux réponses, Malo ne répond pas, et chaque colonne est vérifiée séparément ; cumul sur
-  plusieurs manches jusqu'aux statistiques finales
-- *rejouer* : scores remis à zéro, retour au salon, `usedIdentityIds` **conservé**,
-  refusé hors fin de partie et pour un non-hôte, et une partie complète peut repartir
+- *scores* : maximum quand tout le monde trouve tout (+2 / +2 à trois joueurs) ; **un vote
+  sur un leurre ne rapporte rien** ; zéro partout quand personne ne vote ; **cas mixte** —
+  Sarah vote juste, Allan inverse ses deux votes, Malo ne vote pas, et chaque colonne est
+  vérifiée séparément ; cumul sur les 4 manches jusqu'aux statistiques finales ;
+  **départage aux cartes restantes** vérifié sur un classement réel
+- *rejouer* : scores remis à zéro, mains redistribuées, retour au salon,
+  `usedIdentityIds` **conservé**, refusé hors fin de partie et pour un non-hôte
 
 **`robustness.test.ts`** — cas limites du §9.
 
@@ -132,7 +159,7 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
   refusées avec `GAME_PAUSED`, **la phase n'avance plus** (vérifié en attendant plus
   longtemps que la durée de phase), la reprise repart avec une échéance neuve, les
   soumissions déjà faites sont conservées, et **les points ne sont pas comptés deux fois**
-- *joueur parti en cours de manche* : la manche se termine et sa série est révélée sous
+- *joueur parti en cours de manche* : la manche se termine et son boîtier est révélé sous
   « Joueur parti » ; il est exclu des attributions de la manche suivante
 - *limitation de débit* : fenêtre glissante testée unitairement ; en intégration, une
   rafale reçoit `RATE_LIMITED` sans que le canal soit fermé
@@ -156,7 +183,7 @@ Deux contextes de navigateur séparés, une partie créée, un code, une jointur
 vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
 la négociation ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 165 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 196 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**
@@ -427,7 +454,7 @@ un relais TURN pour les réseaux mixtes (voir la section *Réseau* du README).
 - [x] **Lot 5** — actualiser la page d'un joueur au hasard, à chaque phase : il revient
       exactement où il en était, main et soumissions comprises
 
-### Vérifier l'absence de fuite d'identité à la main
+### Vérifier l'absence de fuite de numéro à la main
 
 Le trafic de jeu passe par un canal WebRTC, que l'onglet **Réseau** n'affiche pas. On
 l'inspecte donc autrement, en phase `CLUE_SELECTION`, chez le joueur B :
@@ -435,8 +462,9 @@ l'inspecte donc autrement, en phase `CLUE_SELECTION`, chez le joueur B :
 `chrome://webrtc-internals` liste les canaux ouverts et leur volume, ce qui confirme que
 les messages vont bien de téléphone à téléphone. Pour lire le contenu, poser un point
 d'arrêt dans `GuestNode.receive` (`apps/web/src/lib/net/guestNode.ts`) et examiner les
-payloads reçus : aucun ne doit contenir l'identité de A, ni `labelMap`, ni un
-`sessionToken` qui ne soit pas le sien.
+payloads reçus : le plateau des huit personnages est légitime — il est public — mais
+aucun ne doit contenir le **numéro** de A, une de ses cartes, ni un `sessionToken` qui
+ne soit pas le sien.
 
 C'est la garantie n° 1 du §6. Les tests `phases.test.ts` la vérifient automatiquement en
 inspectant **tous** les payloads reçus, pas seulement ceux qu'on attendait.

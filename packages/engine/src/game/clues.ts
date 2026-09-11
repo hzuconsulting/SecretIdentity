@@ -1,57 +1,95 @@
-import { MIN_CLUES, type GameErrorCode, type IconId, type Settings } from '@identite-secrete/shared';
+import {
+  MAX_PICTOS,
+  MIN_PICTOS,
+  type GameErrorCode,
+  type PictoCard,
+  type PlacedPicto,
+} from '@identite-secrete/shared';
 
 /**
- * Validation d'une soumission d'indices.
+ * Validation d'un boîtier.
  *
- * Zod a déjà vérifié la **forme** du payload (un tableau de chaînes non vide).
- * Ici on vérifie le **fond**, c'est-à-dire tout ce qui dépend de l'état du
- * joueur : les icônes lui appartiennent-elles, sont-elles distinctes, y en
- * a-t-il trop pour le réglage en cours.
+ * Zod a déjà vérifié la **forme** du payload (1 à 3 entrées, chacune avec une
+ * carte, une icône et une zone). Ici on vérifie le **fond**, c'est-à-dire tout
+ * ce qui dépend de la main du joueur :
+ *  - la carte lui appartient encore — celles des manches passées ont été
+ *    défaussées définitivement ;
+ *  - il ne joue pas deux fois la même carte ;
+ *  - le pictogramme montré est bien l'une des deux faces de cette carte, parce
+ *    qu'une carte ne peut en montrer qu'une.
  *
  * Fonction pure : c'est l'anti-triche du §6, et elle doit être testable sans
  * réseau ni partie en mémoire.
  */
 
-export type ClueValidation =
-  | { ok: true; iconIds: IconId[] }
+export type PlacementValidation =
+  | { ok: true; placed: PlacedPicto[] }
   | { ok: false; code: GameErrorCode; message?: string };
 
-export function validateClueSelection(
-  iconIds: IconId[],
-  hand: readonly IconId[],
-  settings: Settings,
-): ClueValidation {
-  if (new Set(iconIds).size !== iconIds.length) {
-    return {
-      ok: false,
-      code: 'INVALID_PAYLOAD',
-      message: 'Une icône ne peut pas être choisie deux fois.',
-    };
-  }
-
-  if (iconIds.length < MIN_CLUES) {
+export function validatePlacement(
+  placed: readonly PlacedPicto[],
+  hand: readonly PictoCard[],
+): PlacementValidation {
+  if (placed.length < MIN_PICTOS) {
     return { ok: false, code: 'NOT_ENOUGH_CLUES' };
   }
 
-  if (iconIds.length > settings.maxClues) {
+  if (placed.length > MAX_PICTOS) {
     return {
       ok: false,
       code: 'TOO_MANY_CLUES',
-      message: `${settings.maxClues} indices maximum.`,
+      message: `${MAX_PICTOS} pictogrammes maximum.`,
     };
   }
 
-  const inHand = new Set(hand);
-  if (!iconIds.every((iconId) => inHand.has(iconId))) {
-    return { ok: false, code: 'ICON_NOT_IN_HAND' };
+  // Impossible de poser plus de cartes qu'il n'en reste : en fin de partie, une
+  // main réduite limite mécaniquement ce qu'on peut dire.
+  if (placed.length > hand.length) {
+    return {
+      ok: false,
+      code: 'CARD_NOT_IN_HAND',
+      message: `Il ne te reste que ${hand.length} carte${hand.length > 1 ? 's' : ''}.`,
+    };
   }
 
-  return { ok: true, iconIds: [...iconIds] };
+  const cardsById = new Map(hand.map((card) => [card.id, card]));
+  const used = new Set<string>();
+
+  for (const picto of placed) {
+    const card = cardsById.get(picto.cardId);
+    if (!card) return { ok: false, code: 'CARD_NOT_IN_HAND' };
+
+    if (used.has(picto.cardId)) {
+      return {
+        ok: false,
+        code: 'INVALID_PAYLOAD',
+        message: 'Une carte ne peut pas être posée deux fois.',
+      };
+    }
+    used.add(picto.cardId);
+
+    if (picto.iconId !== card.front && picto.iconId !== card.back) {
+      return {
+        ok: false,
+        code: 'INVALID_PAYLOAD',
+        message: 'Ce pictogramme n’est pas sur cette carte.',
+      };
+    }
+  }
+
+  return { ok: true, placed: placed.map((picto) => ({ ...picto })) };
 }
 
-/** Deux sélections identiques, quel que soit l'ordre. */
-export function sameSelection(a: readonly IconId[], b: readonly IconId[]): boolean {
+/** Deux boîtiers identiques, quel que soit l'ordre des pictogrammes. */
+export function samePlacement(a: readonly PlacedPicto[], b: readonly PlacedPicto[]): boolean {
   if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((iconId) => set.has(iconId));
+
+  const key = (picto: PlacedPicto) => `${picto.cardId}|${picto.iconId}|${picto.zone}`;
+  const set = new Set(a.map(key));
+  return b.every((picto) => set.has(key(picto)));
+}
+
+/** Les cartes citées par un boîtier — celles qui partent à la défausse. */
+export function playedCardIds(placed: readonly PlacedPicto[]): Set<string> {
+  return new Set(placed.map((picto) => picto.cardId));
 }

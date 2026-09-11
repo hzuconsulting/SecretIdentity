@@ -1,35 +1,37 @@
 import {
-  LABELS,
-  dealHand,
+  BOARD_SIZE,
   drawIdentities,
   shuffle,
   type Game,
-  type Label,
+  type IdentityId,
   type PlayerId,
   type PlayerRound,
   type Rng,
   type Round,
+  type Slot,
 } from '@identite-secrete/shared';
 import { playersInJoinOrder } from './factory';
 
 /**
  * Construction d'une manche.
  *
- * Trois tirages secrets ont lieu ici, et **uniquement** ici :
- *  - l'identité de chaque joueur (distincte dans la manche, non réutilisée
- *    dans la partie) ;
- *  - sa main d'icônes ;
- *  - la permutation `label → playerId`, qui rend les séries anonymes.
+ * Deux tirages ont lieu ici, et **uniquement** ici :
+ *  - les `BOARD_SIZE` personnages du plateau — **publics**, comme les cartes
+ *    posées face visible au centre de la table ;
+ *  - le numéro secret de chaque joueur, c'est-à-dire sa carte Mystère.
  *
- * Rien de tout cela ne quitte le serveur avant la phase autorisée : c'est
+ * La main de cartes Picto, elle, n'est **pas** tirée ici : elle est distribuée
+ * une seule fois au lancement de la partie et ne se recharge jamais.
+ *
+ * Rien du secret ne quitte l'hôte avant la phase autorisée : c'est
  * `serialization/playerView.ts` qui décide, phase par phase, de ce qui sort.
  */
 
 /**
  * Joueurs pris en compte pour la manche : tous ceux présents dans le salon au
  * moment du tirage, connectés ou non. Un joueur momentanément déconnecté garde
- * sa place et peut revenir en cours de manche ; un joueur qui a **quitté** a
- * déjà été retiré de `game.players` et n'est donc pas servi (§9).
+ * sa place et peut revenir en cours de manche ; un joueur qui a **quitté** — ou
+ * qui a été exclu — a déjà été retiré de `game.players` et n'est donc pas servi.
  */
 export function roundParticipants(game: Game): PlayerId[] {
   return playersInJoinOrder(game).map((player) => player.id);
@@ -38,9 +40,12 @@ export function roundParticipants(game: Game): PlayerId[] {
 export function createRound(game: Game, roundNumber: number, rng: Rng): Round {
   const participants = roundParticipants(game);
 
+  // Toujours BOARD_SIZE personnages, indépendamment du nombre de joueurs : à
+  // trois, cinq numéros ne désignent personne. Sans ces leurres, il suffirait
+  // d'éliminer pour gagner.
   const { identities, poolReset } = drawIdentities(
     {
-      count: participants.length,
+      count: BOARD_SIZE,
       difficulty: game.settings.difficulty,
       usedIdentityIds: game.usedIdentityIds,
     },
@@ -51,21 +56,22 @@ export function createRound(game: Game, roundNumber: number, rng: Rng): Round {
   // de laisser grossir un `Set` qui ne filtre plus rien (§9).
   if (poolReset) game.usedIdentityIds.clear();
 
+  const board: IdentityId[] = identities.map((identity) => identity.id);
+  for (const identityId of board) game.usedIdentityIds.add(identityId);
+
+  const slots = dealSlots(participants.length, rng);
   const assignments = new Map<PlayerId, PlayerRound>();
 
   participants.forEach((playerId, index) => {
-    const identity = identities[index];
-    if (!identity) throw new Error('createRound: identités insuffisantes');
-
-    game.usedIdentityIds.add(identity.id);
+    const slot = slots[index];
+    if (slot === undefined) throw new Error('createRound: plus de cartes Mystère disponibles');
 
     assignments.set(playerId, {
-      identityId: identity.id,
-      hand: dealHand({ handSize: game.settings.handSize }, rng),
-      selectedIcons: [],
+      slot,
+      placed: [],
       cluesSubmitted: false,
-      guesses: {},
-      guessesSubmitted: false,
+      votes: {},
+      votesSubmitted: false,
       roundScoreGiven: 0,
       roundScoreGuessed: 0,
     });
@@ -75,37 +81,65 @@ export function createRound(game: Game, roundNumber: number, rng: Rng): Round {
     roundNumber,
     phase: 'IDENTITY_REVEAL',
     phaseEndsAt: null,
-    labelMap: buildLabelMap(participants, rng),
+    board,
     assignments,
   };
 }
 
 /**
- * Permutation aléatoire des étiquettes.
+ * Distribution des cartes Mystère.
  *
- * On mélange les joueurs, **pas** les étiquettes : `A` est toujours affichée en
- * premier, et c'est le joueur derrière qui change. Mélanger les étiquettes
- * laisserait l'ordre d'affichage corrélé à l'ordre d'arrivée dans le salon.
+ * On mélange les huit numéros et on en donne un à chaque joueur : les numéros
+ * attribués sont donc **distincts**, et ceux qui restent sont les leurres. On
+ * mélange les numéros, pas les joueurs — sans quoi l'ordre d'arrivée dans le
+ * salon transparaîtrait dans les numéros.
  */
-export function buildLabelMap(participants: PlayerId[], rng: Rng): Record<Label, PlayerId> {
-  const shuffled = shuffle(rng, participants);
-  const labelMap: Record<Label, PlayerId> = {};
+export function dealSlots(playerCount: number, rng: Rng): Slot[] {
+  if (playerCount > BOARD_SIZE) {
+    throw new Error(`dealSlots: ${playerCount} joueurs pour ${BOARD_SIZE} cartes Mystère`);
+  }
 
-  shuffled.forEach((playerId, index) => {
-    const label = LABELS[index];
-    if (!label) throw new Error('buildLabelMap: plus d’étiquettes disponibles');
-    labelMap[label] = playerId;
-  });
-
-  return labelMap;
+  const all: Slot[] = Array.from({ length: BOARD_SIZE }, (_, index) => index + 1);
+  return shuffle(rng, all).slice(0, playerCount);
 }
 
-/** Étiquette d'un joueur dans la manche. `null` s'il n'y participe pas. */
-export function labelOf(round: Round, playerId: PlayerId): Label | null {
-  for (const [label, id] of Object.entries(round.labelMap)) {
-    if (id === playerId) return label;
+/** Le personnage qu'un joueur doit faire deviner. `null` s'il ne joue pas la manche. */
+export function identityOf(round: Round, playerId: PlayerId): IdentityId | null {
+  const assignment = round.assignments.get(playerId);
+  if (!assignment) return null;
+  return round.board[assignment.slot - 1] ?? null;
+}
+
+/** Le personnage désigné par un numéro. `null` si le numéro sort du plateau. */
+export function identityAtSlot(round: Round, slot: Slot): IdentityId | null {
+  return round.board[slot - 1] ?? null;
+}
+
+/**
+ * Les adversaires pour qui un joueur doit voter.
+ *
+ * Participants de la manche encore présents dans la partie, soi-même exclu. Un
+ * joueur parti ou exclu en cours de manche disparaît donc des bulletins : on ne
+ * demande pas de voter pour quelqu'un qui n'est plus là. Une seule définition,
+ * partagée par la vue et par la validation — sinon l'interface proposerait des
+ * votes que le moteur refuserait.
+ */
+export function opponentIdsFor(game: Game, round: Round, playerId: PlayerId): PlayerId[] {
+  return playersInJoinOrder(game)
+    .filter((player) => player.id !== playerId && round.assignments.has(player.id))
+    .map((player) => player.id);
+}
+
+/** Numéros qui ne sont attribués à personne — les leurres de la manche. */
+export function decoySlots(round: Round): Slot[] {
+  const taken = new Set<Slot>();
+  for (const assignment of round.assignments.values()) taken.add(assignment.slot);
+
+  const decoys: Slot[] = [];
+  for (let slot = 1; slot <= round.board.length; slot++) {
+    if (!taken.has(slot)) decoys.push(slot);
   }
-  return null;
+  return decoys;
 }
 
 export function currentRound(game: Game): Round | null {

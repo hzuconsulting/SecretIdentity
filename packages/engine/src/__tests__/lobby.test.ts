@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLIENT_EVENTS,
   DEFAULT_SETTINGS,
+  SERVER_EVENTS,
   MAX_PLAYERS,
+  TOTAL_ROUNDS,
+  type GameError,
   type SessionPayload,
 } from '@identite-secrete/shared';
 import {
@@ -166,20 +169,21 @@ describe('paramètres', () => {
     await guest.joinGame(code, 'Allan');
 
     const response = await host.emit(CLIENT_EVENTS.updateSettings, {
-      rounds: 8,
+      guessSeconds: 45,
       difficulty: 'hard',
     });
     expect(response.ok).toBe(true);
 
     const guestView = await guest.waitForView(
-      (v) => v.settings.rounds === 8,
+      (v) => v.settings.guessSeconds === 45,
       'invité reçoit les nouveaux paramètres',
     );
 
     expect(guestView.settings.difficulty).toBe('hard');
     // Les paramètres non touchés ne bougent pas.
-    expect(guestView.settings.handSize).toBe(DEFAULT_SETTINGS.handSize);
-    expect(guestView.totalRounds).toBe(8);
+    expect(guestView.settings.clueSeconds).toBe(DEFAULT_SETTINGS.clueSeconds);
+    // Le nombre de manches, lui, est fixé par les règles.
+    expect(guestView.totalRounds).toBe(TOTAL_ROUNDS);
   });
 
   it('refuse une modification venant d’un non-hôte', async () => {
@@ -188,20 +192,20 @@ describe('paramètres', () => {
     const guest = await connect();
     await guest.joinGame(code, 'Allan');
 
-    const response = await guest.emit(CLIENT_EVENTS.updateSettings, { rounds: 10 });
+    const response = await guest.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 30 });
 
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('NOT_HOST');
 
     const game = await server.store.get(code);
-    expect(game?.settings.rounds).toBe(DEFAULT_SETTINGS.rounds);
+    expect(game?.settings.guessSeconds).toBe(DEFAULT_SETTINGS.guessSeconds);
   });
 
   it('refuse une valeur hors options', async () => {
     const host = await connect();
     await host.createGame('Sarah');
 
-    const response = await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 7 });
+    const response = await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 7 });
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('INVALID_PAYLOAD');
   });
@@ -382,6 +386,129 @@ describe('rôle d’hôte', () => {
 
 // ─────────────────────────────────────────────────────────────
 
+describe('exclusion par l’hôte', () => {
+  /** Un salon à trois, l'hôte en tête. */
+  async function lobby(): Promise<{ code: string; players: TestClient[] }> {
+    const host = await connect();
+    const { code } = await host.createGame('Sarah');
+    const players = [host];
+
+    for (const nickname of ['Allan', 'Malo']) {
+      const guest = await connect();
+      await guest.joinGame(code, nickname);
+      players.push(guest);
+    }
+
+    await host.waitForView((v) => v.players.length === 3, 'salon à 3');
+    return { code, players };
+  }
+
+  it('retire le joueur et prévient tout le monde', async () => {
+    const { code, players } = await lobby();
+    const [host, allan] = players as [TestClient, TestClient];
+
+    const kicked = new Promise<GameError>((resolve) => {
+      allan.on<GameError>(SERVER_EVENTS.kicked, resolve);
+    });
+
+    const response = await host.emit(CLIENT_EVENTS.kickPlayer, {
+      playerId: allan.session!.playerId,
+    });
+    expect(response.ok).toBe(true);
+
+    // L'exclu est prévenu personnellement, avant d'être retiré.
+    expect((await kicked).code).toBe('KICKED');
+
+    // Et il a bien disparu du salon des autres. L'acquittement arrive après la
+    // diffusion : la dernière vue de l'hôte est déjà celle d'après l'exclusion.
+    expect(host.lastView.players.map((player) => player.nickname).sort()).toEqual([
+      'Malo',
+      'Sarah',
+    ]);
+
+    const game = await server.store.get(code);
+    expect(game!.players.has(allan.session!.playerId)).toBe(false);
+  });
+
+  it('empêche le retour de l’exclu, par session comme par pseudo', async () => {
+    const { code, players } = await lobby();
+    const [host, allan] = players as [TestClient, TestClient];
+    const session = allan.session!;
+
+    await host.emit(CLIENT_EVENTS.kickPlayer, { playerId: session.playerId });
+
+    // Son jeton ne correspond plus à personne.
+    const revenant = await connect();
+    const rejoin = await revenant.emit(CLIENT_EVENTS.rejoinGame, {
+      sessionToken: session.sessionToken,
+    });
+    expect(rejoin.ok).toBe(false);
+    if (!rejoin.ok) expect(rejoin.error.code).toBe('SESSION_NOT_FOUND');
+
+    // Et son pseudo est banni — la casse ne suffit pas à le contourner.
+    for (const nickname of ['Allan', 'allan', '  ALLAN  ']) {
+      const retry = await revenant.emit(CLIENT_EVENTS.joinGame, { code, nickname });
+      expect(retry.ok, nickname).toBe(false);
+      if (!retry.ok) expect(retry.error.code).toBe('KICKED');
+    }
+
+    // Un nouveau venu, lui, entre normalement.
+    const newcomer = await connect();
+    expect((await newcomer.emit(CLIENT_EVENTS.joinGame, { code, nickname: 'Zoé' })).ok).toBe(
+      true,
+    );
+  });
+
+  it('refuse l’exclusion par un non-hôte', async () => {
+    const { players } = await lobby();
+    const [host, allan] = players as [TestClient, TestClient];
+
+    const response = await allan.emit(CLIENT_EVENTS.kickPlayer, {
+      playerId: host.session!.playerId,
+    });
+
+    expect(response.ok).toBe(false);
+    if (!response.ok) expect(response.error.code).toBe('NOT_HOST');
+  });
+
+  it('refuse à l’hôte de s’exclure lui-même', async () => {
+    const { players } = await lobby();
+    const host = players[0]!;
+
+    const response = await host.emit(CLIENT_EVENTS.kickPlayer, {
+      playerId: host.session!.playerId,
+    });
+
+    expect(response.ok).toBe(false);
+    if (!response.ok) expect(response.error.code).toBe('INVALID_PAYLOAD');
+  });
+
+  it('est idempotent sur un joueur déjà parti', async () => {
+    const { players } = await lobby();
+    const [host, allan] = players as [TestClient, TestClient];
+
+    await host.emit(CLIENT_EVENTS.kickPlayer, { playerId: allan.session!.playerId });
+    const again = await host.emit(CLIENT_EVENTS.kickPlayer, {
+      playerId: allan.session!.playerId,
+    });
+
+    expect(again.ok).toBe(true);
+  });
+
+  it('supprime la partie si l’hôte exclut tout le monde puis s’en va', async () => {
+    const { code, players } = await lobby();
+    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+
+    await host.emit(CLIENT_EVENTS.kickPlayer, { playerId: allan.session!.playerId });
+    await host.emit(CLIENT_EVENTS.kickPlayer, { playerId: malo.session!.playerId });
+    await host.emit(CLIENT_EVENTS.leave, {});
+
+    expect(await server.store.get(code)).toBeFalsy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+
 describe('confidentialité des payloads', () => {
   it('n’envoie jamais le jeton de session d’un joueur à un autre', async () => {
     const host = await connect();
@@ -389,8 +516,8 @@ describe('confidentialité des payloads', () => {
     const guest = await connect();
     const guestSession = await guest.joinGame(code, 'Allan');
 
-    await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 8 });
-    await host.waitForView((v) => v.settings.rounds === 8, 'paramètres diffusés');
+    await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 45 });
+    await host.waitForView((v) => v.settings.guessSeconds === 45, 'paramètres diffusés');
 
     for (const payload of host.allPayloads) {
       expect(containsValue(payload, guestSession.sessionToken)).toBe(false);
@@ -419,6 +546,7 @@ describe('confidentialité des payloads', () => {
     const other = view.players.find((p) => p.nickname === 'Allan');
 
     expect(Object.keys(other ?? {}).sort()).toEqual([
+      'cardsLeft',
       'connected',
       'id',
       'isHost',
@@ -433,7 +561,7 @@ describe('confidentialité des payloads', () => {
 describe('robustesse', () => {
   it('rejette une action sans session, sans planter', async () => {
     const client = await connect();
-    const response = await client.emit(CLIENT_EVENTS.updateSettings, { rounds: 8 });
+    const response = await client.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 45 });
 
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('SESSION_NOT_FOUND');
@@ -463,7 +591,7 @@ describe('robustesse', () => {
     expect(response.ok).toBe(false);
 
     // La socket vit toujours et répond encore.
-    const next = await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 3 });
+    const next = await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 30 });
     expect(next.ok).toBe(true);
   });
 });

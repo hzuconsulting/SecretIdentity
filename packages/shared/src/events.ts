@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import {
+  BOARD_SIZE,
   CODE_LENGTH,
   DIFFICULTY_OPTIONS,
-  HAND_SIZE_OPTIONS,
-  MAX_CLUES_OPTIONS,
   MAX_NICKNAME_LENGTH,
+  MAX_PICTOS,
   MIN_NICKNAME_LENGTH,
-  ROUNDS_OPTIONS,
+  MIN_PICTOS,
+  STARTING_HAND_CARDS,
   TIMER_OPTIONS,
 } from './constants';
 import { normalizeGameCode } from './gameCode';
@@ -27,6 +28,7 @@ export const CLIENT_EVENTS = {
   nextRound: 'round:next',
   replay: 'game:replay',
   leave: 'game:leave',
+  kickPlayer: 'player:kick',
   ping: 'time:ping',
 } as const;
 
@@ -36,6 +38,8 @@ export const SERVER_EVENTS = {
   phaseChanged: 'phase:changed',
   error: 'game:error',
   toast: 'game:toast',
+  /** Envoyé au seul joueur exclu, juste avant son retrait. */
+  kicked: 'game:kicked',
 } as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -75,11 +79,8 @@ const timerSchema = z.union([
 ]);
 
 export const settingsSchema = z.object({
-  rounds: z.union([z.literal(3), z.literal(5), z.literal(8), z.literal(10)]),
   clueSeconds: timerSchema,
   guessSeconds: timerSchema,
-  handSize: z.union([z.literal(8), z.literal(10), z.literal(12)]),
-  maxClues: z.union([z.literal(2), z.literal(3), z.literal(4)]),
   difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
 });
 
@@ -90,12 +91,29 @@ export const updateSettingsSchema = settingsSchema.partial().refine(
 
 export const startGameSchema = z.object({});
 
-export const submitCluesSchema = z.object({
-  iconIds: z.array(z.string().min(1).max(64)).min(1).max(8),
+/** Un pictogramme posé : quelle carte, quelle face, quelle zone. */
+export const placedPictoSchema = z.object({
+  cardId: z.string().min(1).max(64),
+  iconId: z.string().min(1).max(64),
+  zone: z.enum(['green', 'red']),
 });
 
+/**
+ * Le plafond Zod est volontairement plus large que la règle : c'est
+ * `validatePlacement` qui refuse au-delà de `MAX_PICTOS`, avec un message
+ * français utile. Zod ne borne ici que l'absurde.
+ */
+export const submitCluesSchema = z.object({
+  placed: z.array(placedPictoSchema).min(MIN_PICTOS).max(STARTING_HAND_CARDS),
+});
+
+/** Vote : adversaire → numéro du plateau. */
 export const submitGuessesSchema = z.object({
-  guesses: z.record(z.string().min(1).max(4), z.string().min(1).max(64)),
+  votes: z.record(z.string().min(1).max(64), z.number().int().min(1).max(BOARD_SIZE)),
+});
+
+export const kickPlayerSchema = z.object({
+  playerId: z.string().min(1).max(64),
 });
 
 export const nextRoundSchema = z.object({});
@@ -108,15 +126,13 @@ export type RejoinGamePayload = z.infer<typeof rejoinGameSchema>;
 export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>;
 export type SubmitCluesPayload = z.infer<typeof submitCluesSchema>;
 export type SubmitGuessesPayload = z.infer<typeof submitGuessesSchema>;
+export type KickPlayerPayload = z.infer<typeof kickPlayerSchema>;
 export type PingPayload = z.infer<typeof pingSchema>;
 
 /** Sanity check : les options du salon et les schémas Zod ne divergent pas. */
 export const SETTINGS_OPTIONS = {
-  rounds: ROUNDS_OPTIONS,
   clueSeconds: TIMER_OPTIONS,
   guessSeconds: TIMER_OPTIONS,
-  handSize: HAND_SIZE_OPTIONS,
-  maxClues: MAX_CLUES_OPTIONS,
   difficulty: DIFFICULTY_OPTIONS,
 } as const;
 
@@ -164,14 +180,15 @@ const ERROR_MESSAGES: Record<GameErrorCode, string> = {
   WRONG_PHASE: "Ce n'est pas le moment de faire ça.",
   NOT_ENOUGH_PLAYERS: 'Il faut au moins 3 joueurs pour lancer.',
   INVALID_PAYLOAD: 'Requête invalide.',
-  ICON_NOT_IN_HAND: "Cette icône n'est pas dans ta main.",
-  TOO_MANY_CLUES: 'Tu as sélectionné trop d’indices.',
-  NOT_ENOUGH_CLUES: 'Sélectionne au moins un indice.',
-  INVALID_GUESS: 'Ces réponses ne sont pas valides.',
+  CARD_NOT_IN_HAND: "Cette carte n'est pas dans ta main.",
+  TOO_MANY_CLUES: `Tu ne peux poser que ${MAX_PICTOS} pictogrammes.`,
+  NOT_ENOUGH_CLUES: 'Pose au moins un pictogramme.',
+  INVALID_GUESS: 'Ces votes ne sont pas valides.',
   TOO_LATE: 'Trop tard !',
   SESSION_NOT_FOUND: 'Ta session a expiré.',
   RATE_LIMITED: 'Trop d’actions d’un coup. Attends une seconde.',
   GAME_PAUSED: 'La partie est en pause, il n’y a plus assez de joueurs.',
+  KICKED: 'Tu as été exclu·e de cette partie par l’hôte.',
   INTERNAL_ERROR: 'Une erreur est survenue.',
 };
 

@@ -6,12 +6,12 @@ import {
   SERVER_EVENTS,
   gameError,
   type GameError,
-  type IconId,
-  type IdentityId,
-  type Label,
+  type PlacedPicto,
+  type PlayerId,
   type PlayerView,
   type SessionPayload,
   type Settings,
+  type Slot,
   type ToastPayload,
 } from '@identite-secrete/shared';
 import { closeCurrent, getNode, type GameNode, type NodeStatus } from '@/lib/net';
@@ -37,7 +37,9 @@ export type ConnectionStatus =
   | 'connected'
   | 'lost'
   /** L'hôte a fermé son onglet : la partie ne reviendra pas. */
-  | 'host-gone';
+  | 'host-gone'
+  /** L'hôte nous a exclu : il n'y a rien à retenter. */
+  | 'kicked';
 
 interface Toast extends ToastPayload {
   id: number;
@@ -52,11 +54,12 @@ export interface GameConnection {
   hosting: boolean;
   join: (nickname: string) => Promise<GameError | null>;
   startGame: () => Promise<GameError | null>;
-  submitClues: (iconIds: IconId[]) => Promise<GameError | null>;
-  submitGuesses: (guesses: Record<Label, IdentityId>) => Promise<GameError | null>;
+  submitClues: (placed: PlacedPicto[]) => Promise<GameError | null>;
+  submitVotes: (votes: Record<PlayerId, Slot>) => Promise<GameError | null>;
   replay: () => Promise<GameError | null>;
   nextRound: () => Promise<GameError | null>;
   updateSettings: (patch: Partial<Settings>) => Promise<GameError | null>;
+  kickPlayer: (playerId: PlayerId) => Promise<GameError | null>;
   leave: () => Promise<void>;
   dismissError: () => void;
 }
@@ -168,14 +171,36 @@ export function useGameConnection(code: string): GameConnection {
     const handleServerError = (payload: GameError) => setError(payload);
     const handleConnect = () => void restore(node);
 
+    /**
+     * L'hôte nous a exclu.
+     *
+     * On efface la session et on ferme le nœud tout de suite : sans ça, la
+     * reconnexion automatique repartirait en boucle sur une partie qui ne veut
+     * plus de nous, et l'écran resterait sur un « connexion perdue » trompeur.
+     */
+    const handleKicked = (payload: GameError) => {
+      setError(payload);
+      setStatus('kicked');
+      setView(null);
+      clearSession(code);
+      closeCurrent();
+    };
+
     const handleNodeStatus = (nodeStatus: NodeStatus) => {
-      if (nodeStatus === 'offline') setStatus('lost');
-      else if (nodeStatus === 'host-gone') setStatus('host-gone');
+      // Une exclusion est définitive : la fermeture du canal qui la suit ne doit
+      // pas repasser l'écran en « connexion perdue ».
+      setStatus((current) => {
+        if (current === 'kicked') return current;
+        if (nodeStatus === 'offline') return 'lost';
+        if (nodeStatus === 'host-gone') return 'host-gone';
+        return current;
+      });
     };
 
     node.on(SERVER_EVENTS.stateUpdate, handleState);
     node.on(SERVER_EVENTS.toast, handleToast);
     node.on(SERVER_EVENTS.error, handleServerError);
+    node.on(SERVER_EVENTS.kicked, handleKicked);
     node.on('connect', handleConnect);
 
     const unsubscribe = node.onStatus(handleNodeStatus);
@@ -188,10 +213,11 @@ export function useGameConnection(code: string): GameConnection {
       node.off(SERVER_EVENTS.stateUpdate, handleState);
       node.off(SERVER_EVENTS.toast, handleToast);
       node.off(SERVER_EVENTS.error, handleServerError);
+      node.off(SERVER_EVENTS.kicked, handleKicked);
       node.off('connect', handleConnect);
       unsubscribe();
     };
-  }, [node, restore, pushToast]);
+  }, [node, restore, pushToast, code]);
 
   // ───────────────────────────────────────────────────────────
   //  Actions
@@ -234,12 +260,17 @@ export function useGameConnection(code: string): GameConnection {
   const startGame = useCallback(() => send(CLIENT_EVENTS.startGame, {}), [send]);
 
   const submitClues = useCallback(
-    (iconIds: IconId[]) => send(CLIENT_EVENTS.submitClues, { iconIds }),
+    (placed: PlacedPicto[]) => send(CLIENT_EVENTS.submitClues, { placed }),
     [send],
   );
 
-  const submitGuesses = useCallback(
-    (guesses: Record<Label, IdentityId>) => send(CLIENT_EVENTS.submitGuesses, { guesses }),
+  const submitVotes = useCallback(
+    (votes: Record<PlayerId, Slot>) => send(CLIENT_EVENTS.submitGuesses, { votes }),
+    [send],
+  );
+
+  const kickPlayer = useCallback(
+    (playerId: PlayerId) => send(CLIENT_EVENTS.kickPlayer, { playerId }),
     [send],
   );
 
@@ -271,10 +302,11 @@ export function useGameConnection(code: string): GameConnection {
     join,
     startGame,
     submitClues,
-    submitGuesses,
+    submitVotes,
     replay,
     nextRound,
     updateSettings,
+    kickPlayer,
     leave,
     dismissError,
   };

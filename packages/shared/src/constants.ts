@@ -19,13 +19,37 @@ export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 5;
 
 // ─────────────────────────────────────────────────────────────
+//  Règles du jeu — fixées par le livret, pas réglables
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Nombre de personnages exposés au centre, et donc de numéros possibles.
+ *
+ * **Toujours 8, quel que soit le nombre de joueurs.** À trois joueurs, cinq
+ * numéros ne correspondent à personne : ce sont ces leurres qui empêchent de
+ * trouver par élimination.
+ */
+export const BOARD_SIZE = 8;
+
+/** La partie prend fin après 4 manches. */
+export const TOTAL_ROUNDS = 4;
+
+/**
+ * Cartes Picto distribuées à chaque joueur **au lancement, une fois pour toute
+ * la partie**. Elles ne sont jamais remplacées : 10 cartes pour 4 manches à
+ * 1-3 cartes, c'est là qu'est toute la tension du jeu.
+ */
+export const STARTING_HAND_CARDS = 10;
+
+/** Pictogrammes qu'un joueur pose dans son boîtier, par manche. */
+export const MIN_PICTOS = 1;
+export const MAX_PICTOS = 3;
+
+// ─────────────────────────────────────────────────────────────
 //  Paramètres : options proposées dans le salon
 // ─────────────────────────────────────────────────────────────
 
-export const ROUNDS_OPTIONS = [3, 5, 8, 10] as const;
 export const TIMER_OPTIONS: readonly TimerSeconds[] = [30, 45, 60, 90, null] as const;
-export const HAND_SIZE_OPTIONS = [8, 10, 12] as const;
-export const MAX_CLUES_OPTIONS = [2, 3, 4] as const;
 export const DIFFICULTY_OPTIONS: readonly DifficultySetting[] = [
   'easy',
   'medium',
@@ -34,21 +58,22 @@ export const DIFFICULTY_OPTIONS: readonly DifficultySetting[] = [
 ] as const;
 
 export const DEFAULT_SETTINGS: Settings = {
-  rounds: 5,
   clueSeconds: 60,
   guessSeconds: 60,
-  handSize: 10,
-  maxClues: 3,
   difficulty: 'medium',
 };
-
-/** Nombre minimum d'indices qu'un joueur doit sélectionner. */
-export const MIN_CLUES = 1;
 
 // ─────────────────────────────────────────────────────────────
 //  Quotas de composition d'une main (cf. §8.3)
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Minimums par catégorie sur les pictogrammes d'une main.
+ *
+ * Une main de 10 cartes porte 20 pictogrammes : ces quotas s'appliquent à
+ * l'ensemble, pour qu'aucun joueur ne se retrouve avec vingt symboles abstraits
+ * et rien de concret.
+ */
 export const HAND_CATEGORY_QUOTAS = {
   symbole: 2,
   objet: 2,
@@ -60,8 +85,13 @@ export const HAND_CATEGORY_QUOTAS = {
 //  Durées (millisecondes)
 // ─────────────────────────────────────────────────────────────
 
-/** Durée fixe de l'écran « Ton identité ». */
-export const IDENTITY_REVEAL_MS = 5_000;
+/**
+ * Durée fixe de l'écran « Ta carte Mystère ».
+ *
+ * Plus longue que la simple lecture d'un nom : c'est là qu'on découvre les huit
+ * personnages du plateau en même temps que le sien.
+ */
+export const IDENTITY_REVEAL_MS = 8_000;
 /** Intervalle entre deux révélations séquentielles en phase RESULTS. */
 export const REVEAL_STEP_MS = 1_500;
 /** Marge après la dernière révélation avant de passer au classement. */
@@ -100,13 +130,6 @@ export const RATE_LIMIT_WINDOW_MS = 10_000;
  * ne doit jamais l'atteindre. Il ne vise que les boucles automatisées.
  */
 export const RATE_LIMIT_MAX_EVENTS = 60;
-
-// ─────────────────────────────────────────────────────────────
-//  Étiquettes anonymes
-// ─────────────────────────────────────────────────────────────
-
-/** Assez de lettres pour MAX_PLAYERS. */
-export const LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
 
 // ─────────────────────────────────────────────────────────────
 //  Divers

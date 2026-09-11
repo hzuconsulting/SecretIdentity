@@ -4,23 +4,21 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   REVEAL_STEP_MS,
-  getIcon,
   getIdentity,
   type PlayerView,
-  type RevealedClueSet,
+  type RoundReveal,
 } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
-import { IconTile } from '@/components/ui/IconTile';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
+import { PictoCase } from './PictoCase';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
 
 /**
  * Révélation séquentielle.
  *
- * Une série toutes les 1,5 s, dans l'ordre — c'est le moment de la manche où
- * tout le monde regarde le même écran, et tout révéler d'un coup gâcherait le
- * seul suspense du jeu. Chaque carte se dévoile en trois temps : les icônes,
- * puis l'identité, puis l'auteur.
+ * Un boîtier toutes les 1,5 s, dans l'ordre des numéros — c'est le moment de la
+ * manche où tout le monde regarde le même écran, et tout révéler d'un coup
+ * gâcherait le seul suspense du jeu.
  *
  * Avec `prefers-reduced-motion`, tout s'affiche immédiatement : l'information
  * est la même, seule la mise en scène disparaît.
@@ -70,15 +68,15 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
       <PhaseAnnouncement
         label={
           allShown
-            ? 'Toutes les identités sont révélées.'
-            : 'Les identités se révèlent une par une.'
+            ? 'Tous les personnages sont révélés.'
+            : 'Les personnages se révèlent un par un.'
         }
       />
 
       <ul className="flex flex-col gap-3">
         <AnimatePresence initial={false}>
           {visible.map((reveal) => (
-            <RevealCard key={reveal.label} reveal={reveal} youId={view.you.id} />
+            <RevealCard key={reveal.playerId} reveal={reveal} youId={view.you.id} />
           ))}
         </AnimatePresence>
       </ul>
@@ -120,7 +118,7 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
   );
 }
 
-function RevealCard({ reveal, youId }: { reveal: RevealedClueSet; youId: string }) {
+function RevealCard({ reveal, youId }: { reveal: RoundReveal; youId: string }) {
   const found = reveal.guessedByPlayerIds.length;
   const youFound = reveal.guessedByPlayerIds.includes(youId);
   const isYou = reveal.playerId === youId;
@@ -137,27 +135,18 @@ function RevealCard({ reveal, youId }: { reveal: RevealedClueSet; youId: string 
         <PlayerAvatar playerId={reveal.playerId} nickname={reveal.nickname} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="font-display text-lg font-extrabold leading-tight">
+            <span className="text-violet-dark">n°{reveal.slot}</span>{' '}
             {getIdentity(reveal.identityId)?.name ?? reveal.identityId}
           </p>
           <p className="text-sm font-semibold text-muted">
-            Joueur {reveal.label} — c’était {isYou ? 'toi' : reveal.nickname}
+            C’était {isYou ? 'toi' : reveal.nickname}
           </p>
         </div>
       </div>
 
-      {reveal.iconIds.length > 0 ? (
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {reveal.iconIds.map((iconId, index) => {
-            const icon = getIcon(iconId);
-            if (!icon) return null;
-            return (
-              <li key={`${reveal.label}-${iconId}-${index}`}>
-                <IconTile icon={icon} selectionIndex={index + 1} size="sm" />
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <div className="mt-3">
+        <PictoCase placed={reveal.placed} />
+      </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <p className="font-display text-sm font-extrabold text-violet-dark">

@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { HAND_CATEGORY_QUOTAS, MAX_PLAYERS } from '../constants';
+import {
+  BOARD_SIZE,
+  HAND_CATEGORY_QUOTAS,
+  MAX_PLAYERS,
+  STARTING_HAND_CARDS,
+  TOTAL_ROUNDS,
+} from '../constants';
 import { ICONS, ICON_BY_ID, getIcon } from '../data/icons';
 import { IDENTITIES, IDENTITY_BY_ID, getIdentityPool } from '../data/identities';
-import { dealHand } from '../dealHand';
+import { cardFaces, dealHand, dealPictoCards } from '../dealHand';
 import {
   generateGameCode,
   generateUniqueGameCode,
@@ -212,5 +218,62 @@ describe('codes de partie', () => {
     expect(isValidGameCode('k7p4q')).toBe(true);
     expect(isValidGameCode('K7P4')).toBe(false);
     expect(isValidGameCode('K7P4O')).toBe(false);
+  });
+});
+
+
+describe('dealPictoCards', () => {
+  it('rend le bon nombre de cartes, à deux faces distinctes', () => {
+    const cards = dealPictoCards({ cardCount: STARTING_HAND_CARDS }, seededRng(3));
+
+    expect(cards).toHaveLength(STARTING_HAND_CARDS);
+    for (const card of cards) {
+      expect(card.front).not.toBe(card.back);
+      expect(cardFaces(card)).toEqual([card.front, card.back]);
+    }
+  });
+
+  it('n’utilise jamais deux fois le même pictogramme dans une main', () => {
+    const cards = dealPictoCards({ cardCount: STARTING_HAND_CARDS }, seededRng(11));
+    const faces = cards.flatMap(cardFaces);
+
+    expect(new Set(faces).size).toBe(STARTING_HAND_CARDS * 2);
+  });
+
+  it('donne des identifiants uniques, préfixables par joueur', () => {
+    const cards = dealPictoCards({ cardCount: 4, idPrefix: 'p1-' }, seededRng(5));
+
+    expect(cards.map((card) => card.id)).toEqual(['p1-c1', 'p1-c2', 'p1-c3', 'p1-c4']);
+  });
+
+  it('est déterministe à graine fixée, et varie sinon', () => {
+    const a = dealPictoCards({ cardCount: 6 }, seededRng(7));
+    const b = dealPictoCards({ cardCount: 6 }, seededRng(7));
+    const c = dealPictoCards({ cardCount: 6 }, seededRng(8));
+
+    expect(a).toEqual(b);
+    expect(a).not.toEqual(c);
+  });
+
+  it('échoue plutôt que de rendre une main incomplète', () => {
+    expect(() =>
+      dealPictoCards({ cardCount: 10, pool: ICONS.slice(0, 5) }, seededRng(1)),
+    ).toThrow();
+  });
+});
+
+describe('le catalogue suffit aux règles', () => {
+  it('offre assez de personnages pour une partie entière, dans chaque difficulté', () => {
+    const pool = getIdentityPool(['base']);
+
+    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+      const available = filterByDifficulty(pool, difficulty);
+      // 4 manches × 8 personnages, sans jamais réutiliser.
+      expect(available.length, difficulty).toBeGreaterThanOrEqual(TOTAL_ROUNDS * BOARD_SIZE);
+    }
+  });
+
+  it('offre assez de pictogrammes pour huit mains complètes', () => {
+    expect(ICONS.length).toBeGreaterThanOrEqual(MAX_PLAYERS * STARTING_HAND_CARDS * 2);
   });
 });

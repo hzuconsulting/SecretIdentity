@@ -13,9 +13,9 @@ import {
 } from '@identite-secrete/shared';
 import { touch } from '../game/factory';
 import { connectedCount, isHost } from '../game/lobby';
-import { sameSelection, validateClueSelection } from '../game/clues';
-import { sameGuesses, validateGuessSubmission } from '../game/guesses';
-import { currentRound, labelOf } from '../game/round';
+import { samePlacement, validatePlacement } from '../game/clues';
+import { sameVotes, validateVotes } from '../game/guesses';
+import { currentRound, opponentIdsFor } from '../game/round';
 import { broadcastState, toastAll } from '../emit';
 import type { EventHandler } from './context';
 
@@ -134,13 +134,12 @@ const submitClues: EventHandler = (ctx, payload) =>
 
     const round = currentRound(game);
     const assignment = round?.assignments.get(playerId);
-    if (!round || !assignment) return fail('WRONG_PHASE');
+    const player = game.players.get(playerId);
+    if (!round || !assignment || !player) return fail('WRONG_PHASE');
 
-    const validation = validateClueSelection(
-      parsed.data.iconIds,
-      assignment.hand,
-      game.settings,
-    );
+    // La main est celle du joueur, pas celle de la manche : elle traverse la
+    // partie et ne contient plus ce qu'il a déjà dépensé.
+    const validation = validatePlacement(parsed.data.placed, player.hand);
     if (!validation.ok) {
       return fail(
         validation.code,
@@ -151,13 +150,13 @@ const submitClues: EventHandler = (ctx, payload) =>
     if (assignment.cluesSubmitted) {
       // Rejouer exactement la même soumission est sans effet et réussit ; en
       // changer une après validation est refusé.
-      return sameSelection(assignment.selectedIcons, validation.iconIds)
+      return samePlacement(assignment.placed, validation.placed)
         ? ok(null)
-        : fail('WRONG_PHASE', { message: 'Tes indices sont déjà validés.' });
+        : fail('WRONG_PHASE', { message: 'Ton boîtier est déjà validé.' });
     }
 
     const now = Date.now();
-    assignment.selectedIcons = validation.iconIds;
+    assignment.placed = validation.placed;
     assignment.cluesSubmitted = true;
     touch(game, now);
     await store.save(game);
@@ -199,20 +198,9 @@ const submitGuesses: EventHandler = (ctx, payload) =>
     const assignment = round?.assignments.get(playerId);
     if (!round || !assignment) return fail('WRONG_PHASE');
 
-    // Le sous-ensemble autorisé est recalculé ici, pas repris du client : c'est
-    // ce qui empêche de deviner sa propre série ou de proposer sa propre
-    // identité.
-    const ownLabel = labelOf(round, playerId);
-    const allowedLabels = Object.keys(round.labelMap).filter((label) => label !== ownLabel);
-    const allowedIdentityIds = [...round.assignments.values()]
-      .map((other) => other.identityId)
-      .filter((identityId) => identityId !== assignment.identityId);
-
-    const validation = validateGuessSubmission(
-      parsed.data.guesses,
-      allowedLabels,
-      allowedIdentityIds,
-    );
+    // La liste des adversaires est recalculée ici, pas reprise du client :
+    // c'est ce qui empêche de voter pour soi-même.
+    const validation = validateVotes(parsed.data.votes, opponentIdsFor(game, round, playerId));
     if (!validation.ok) {
       return fail(
         validation.code,
@@ -220,15 +208,15 @@ const submitGuesses: EventHandler = (ctx, payload) =>
       );
     }
 
-    if (assignment.guessesSubmitted) {
-      return sameGuesses(assignment.guesses, validation.guesses)
+    if (assignment.votesSubmitted) {
+      return sameVotes(assignment.votes, validation.votes)
         ? ok(null)
-        : fail('WRONG_PHASE', { message: 'Tes réponses sont déjà validées.' });
+        : fail('WRONG_PHASE', { message: 'Tes votes sont déjà validés.' });
     }
 
     const now = Date.now();
-    assignment.guesses = validation.guesses;
-    assignment.guessesSubmitted = true;
+    assignment.votes = validation.votes;
+    assignment.votesSubmitted = true;
     touch(game, now);
     await store.save(game);
 

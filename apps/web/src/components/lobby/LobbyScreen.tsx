@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
   MIN_PLAYERS,
+  TOTAL_ROUNDS,
   type GameError,
+  type PlayerId,
   type PlayerView,
   type Settings,
 } from '@identite-secrete/shared';
@@ -25,6 +27,7 @@ interface LobbyScreenProps {
   onUpdateSettings: (patch: Partial<Settings>) => Promise<GameError | null>;
   onStart: () => Promise<GameError | null>;
   onLeave: () => Promise<void>;
+  onKick: (playerId: PlayerId) => Promise<GameError | null>;
 }
 
 /**
@@ -42,6 +45,7 @@ export function LobbyScreen({
   onUpdateSettings,
   onStart,
   onLeave,
+  onKick,
 }: LobbyScreenProps) {
   const router = useRouter();
   const { play } = useSound();
@@ -111,7 +115,12 @@ export function LobbyScreen({
 
       <ErrorBanner error={error} onDismiss={onDismissError} />
 
-      <PlayerList players={view.players} youId={view.you.id} />
+      <PlayerList
+        players={view.players}
+        youId={view.you.id}
+        canKick={view.you.isHost}
+        onKick={onKick}
+      />
 
       <SettingsPanel
         settings={view.settings}
@@ -131,7 +140,7 @@ export function LobbyScreen({
         <p className="text-center text-sm font-semibold text-muted" aria-live="polite">
           {enoughPlayers
             ? view.you.isHost
-              ? `${view.settings.rounds} manches, c'est parti quand tu veux.`
+              ? `${TOTAL_ROUNDS} manches, c'est parti quand tu veux.`
               : 'On attend que l’hôte lance la partie.'
             : `Encore ${missing} joueur${missing > 1 ? 's' : ''} avant de pouvoir lancer.`}
         </p>

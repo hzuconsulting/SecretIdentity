@@ -1,6 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { DEFAULT_SETTINGS, MAX_PLAYERS, MIN_PLAYERS } from '@identite-secrete/shared';
+import {
+  BOARD_SIZE,
+  MAX_PICTOS,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
+  STARTING_HAND_CARDS,
+  TOTAL_ROUNDS,
+} from '@identite-secrete/shared';
 import { Card, Eyebrow } from '@/components/ui/Card';
 
 export const metadata: Metadata = {
@@ -8,29 +15,29 @@ export const metadata: Metadata = {
 };
 
 /**
- * Cinq étapes, dans l'ordre où elles arrivent pendant une manche.
+ * Les étapes, dans l'ordre où elles arrivent pendant une manche.
  * La numérotation encode une vraie séquence : elle sert à se repérer.
  */
 const STEPS = [
   {
-    title: 'Tu reçois une identité',
-    body: 'Au début de chaque manche, le jeu t’attribue un personnage. Toi seul le vois — personne d’autre, jamais.',
+    title: `${BOARD_SIZE} personnages sur la table`,
+    body: `Chaque manche commence par ${BOARD_SIZE} personnages numérotés de 1 à ${BOARD_SIZE}, visibles de tous. Ils changent à chaque manche.`,
   },
   {
-    title: 'Tu choisis tes indices',
-    body: `Dans ta main d’icônes, tu en sélectionnes jusqu’à ${DEFAULT_SETTINGS.maxClues}. Elles doivent évoquer ton personnage sans le nommer.`,
+    title: 'Tu reçois un numéro secret',
+    body: 'Ta carte Mystère t’attribue l’un de ces numéros. Toi seul le connais — c’est ce personnage-là que tu dois faire deviner.',
   },
   {
-    title: 'Tout le monde valide',
-    body: 'Les séries d’indices apparaissent mélangées et anonymes : Joueur A, Joueur B, Joueur C… Impossible de savoir qui a joué quoi.',
+    title: 'Tu remplis ton boîtier',
+    body: `Tu poses 1 à ${MAX_PICTOS} pictogrammes. En zone verte : « mon personnage, c’est ça ». En zone rouge : « ce n’est pas ça ». À toi de choisir ce qui parle le mieux.`,
   },
   {
-    title: 'Tu associes',
-    body: 'Tu relies chaque série d’indices à une identité. Ta propre série n’est pas dans la liste, et chaque identité ne sert qu’une fois.',
+    title: 'Tout le monde vote',
+    body: 'Les boîtiers sont posés devant leurs propriétaires. Tu attribues un numéro du plateau à chaque joueur — mais tu n’as qu’une carte Vote par numéro.',
   },
   {
     title: 'Tout est révélé',
-    body: 'Un point par joueur qui a trouvé ton personnage, un point par identité que tu as trouvée. Le meilleur des deux mondes : bien indicer, et bien deviner.',
+    body: 'Un point par joueur qui a trouvé ton personnage, un point par joueur que tu as correctement identifié.',
   },
 ] as const;
 
@@ -48,8 +55,8 @@ export default function HowToPlayPage() {
           Comment jouer&nbsp;?
         </h1>
         <p className="mt-2 text-base font-semibold text-muted">
-          {MIN_PLAYERS} à {MAX_PLAYERS} joueurs, chacun sur son téléphone. Une manche dure
-          deux minutes.
+          {MIN_PLAYERS} à {MAX_PLAYERS} joueurs, chacun sur son téléphone.{' '}
+          {TOTAL_ROUNDS} manches, et le plus de points l’emporte.
         </p>
       </div>
 
@@ -72,6 +79,21 @@ export default function HowToPlayPage() {
         ))}
       </ol>
 
+      <Card className="bg-violet-light" as="section">
+        <Eyebrow tone="violet">Tes cartes ne se rechargent jamais</Eyebrow>
+        <p className="mt-3 text-sm leading-relaxed text-ink/80">
+          Tu reçois <strong>{STARTING_HAND_CARDS} cartes Picto au début de la partie</strong>,
+          et c’est tout. Chaque carte porte deux pictogrammes : tu n’en montres qu’un, et la
+          carte entière part à la défausse.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink/80">
+          {STARTING_HAND_CARDS} cartes pour {TOTAL_ROUNDS} manches à {MAX_PICTOS} maximum :
+          dépenser trois cartes dès la première manche, c’est finir la partie à court
+          d’idées. À égalité de points, c’est d’ailleurs celui qui en a gardé le plus qui
+          gagne.
+        </p>
+      </Card>
+
       <Card as="section">
         <Eyebrow tone="mint">Les points</Eyebrow>
         <p className="mt-3 text-sm leading-relaxed text-ink/80">
@@ -83,40 +105,49 @@ export default function HowToPlayPage() {
             personnage.
           </li>
           <li>
-            <strong>Bonnes réponses&nbsp;: +1</strong> par identité que tu as
-            correctement attribuée.
+            <strong>Bonnes réponses&nbsp;: +1</strong> par joueur dont tu as trouvé le
+            personnage.
           </li>
         </ul>
         <p className="mt-3 text-sm leading-relaxed text-ink/80">
-          Des indices trop obscurs ne rapportent rien, des indices trop évidents non plus
-          — puisque tout le monde trouve, personne ne se distingue. Le bon niveau se situe
-          entre les deux.
+          Des pictogrammes trop obscurs ne rapportent rien, des pictogrammes trop évidents
+          non plus — puisque tout le monde trouve, personne ne se distingue. Le bon niveau
+          se situe entre les deux.
         </p>
       </Card>
 
-      <Card className="bg-violet-light" as="section">
-        <Eyebrow tone="violet">La règle qui surprend</Eyebrow>
+      <Card className="bg-sun-light" as="section">
+        <Eyebrow tone="sun">La règle qui surprend</Eyebrow>
         <p className="mt-3 text-sm leading-relaxed text-ink/80">
-          Tu ne devines jamais ta propre série, et tu ne peux pas attribuer deux fois la
-          même identité. Si tu choisis une identité déjà utilisée ailleurs, les deux
-          réponses s’échangent automatiquement.
+          Il y a toujours {BOARD_SIZE} personnages, même à {MIN_PLAYERS} joueurs.{' '}
+          <strong>Certains numéros ne correspondent donc à personne.</strong> Impossible de
+          s’en sortir par élimination : il faut vraiment lire les pictogrammes.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink/80">
+          Tu ne votes jamais pour toi-même, et tu ne peux pas donner deux fois le même
+          numéro. Si tu choisis un numéro déjà attribué, les deux votes s’échangent
+          automatiquement.
         </p>
       </Card>
 
       <Card as="section">
-        <Eyebrow tone="sun">Sur un canapé, à plusieurs</Eyebrow>
+        <Eyebrow tone="violet">Sur un canapé, à plusieurs</Eyebrow>
         <ul className="mt-3 flex flex-col gap-2 text-sm leading-relaxed text-ink/80">
           <li>
-            <strong>👁 Masquer mon identité</strong> cache ton personnage. Maintiens le
-            bouton pour le revoir une seconde, à l’abri des regards.
+            <strong>👁 Masquer ma carte</strong> cache ton personnage. Maintiens le bouton
+            pour le revoir une seconde, à l’abri des regards.
           </li>
           <li>
             <strong>🔊 dans l’en-tête</strong> coupe les sons. Le réglage est mémorisé sur
             ton téléphone.
           </li>
           <li>
+            <strong>L’hôte peut exclure un joueur</strong>, depuis le salon comme en cours
+            de partie.
+          </li>
+          <li>
             Si quelqu’un perd le réseau, sa place est gardée et la partie l’attend. En
-            dessous de trois joueurs connectés, tout se met en pause.
+            dessous de {MIN_PLAYERS} joueurs connectés, tout se met en pause.
           </li>
         </ul>
       </Card>

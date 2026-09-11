@@ -27,6 +27,9 @@ export function createPlayer(nickname: string, connectionId: string, now: number
     connectionId,
     nickname,
     score: 0,
+    // La main n'est distribuée qu'au lancement : dans le salon, personne n'a
+    // encore de cartes, et un joueur qui arrive en retard n'en aura jamais.
+    hand: [],
     connected: true,
     disconnectedAt: null,
     joinedAt: now,
@@ -66,6 +69,7 @@ export function createGame({
     players: new Map<PlayerId, Player>([[host.id, host]]),
     rounds: [],
     usedIdentityIds: new Set<string>(),
+    bannedNicknames: new Set<string>(),
     createdAt: now,
     lastActivityAt: now,
     pausedAt: null,

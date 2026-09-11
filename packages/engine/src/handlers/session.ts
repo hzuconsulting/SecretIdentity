@@ -1,8 +1,11 @@
 import {
   CLIENT_EVENTS,
+  SERVER_EVENTS,
   createGameSchema,
   fail,
+  gameError,
   joinGameSchema,
+  kickPlayerSchema,
   ok,
   pingSchema,
   rejoinGameSchema,
@@ -14,6 +17,7 @@ import { logger } from '../logger';
 import { createGame, createPlayer } from '../game/factory';
 import {
   addPlayer,
+  banNickname,
   checkCanJoin,
   isHost,
   markDisconnected,
@@ -203,6 +207,70 @@ const leave: EventHandler = (ctx) =>
   });
 
 // ─────────────────────────────────────────────────────────────
+//  Exclusion par l'hôte
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * L'hôte sort un joueur de la partie.
+ *
+ * Même chemin qu'un départ volontaire — retrait, toast, `finalize`, pause
+ * éventuelle — à trois détails près : l'exclu est prévenu par un événement qui
+ * lui est propre **avant** d'être retiré (après, on n'aurait plus sa
+ * connexion), son pseudo est banni, et il n'y a jamais de transfert d'hôte à
+ * gérer puisque l'hôte ne peut pas s'exclure lui-même.
+ *
+ * Disponible en cours de partie, pas seulement au salon : un joueur qui gâche
+ * la soirée ne le fait pas qu'avant le lancement. La manche en cours se termine
+ * normalement, son boîtier est révélé sous « Joueur parti », et la partie se met
+ * en pause s'il ne reste plus assez de monde.
+ */
+const kickPlayer: EventHandler = (ctx, payload) =>
+  ctx.guard<null>(CLIENT_EVENTS.kickPlayer, async () => {
+    const { timers, emitter, engine } = ctx.deps;
+
+    const context = await ctx.resolveContext();
+    if (!context) return fail('SESSION_NOT_FOUND');
+
+    const { game, playerId } = context;
+    if (!isHost(game, playerId)) return fail('NOT_HOST');
+
+    const parsed = kickPlayerSchema.safeParse(payload);
+    if (!parsed.success) return fail('INVALID_PAYLOAD');
+
+    const targetId = parsed.data.playerId;
+    if (targetId === playerId) {
+      return fail('INVALID_PAYLOAD', { message: 'Tu ne peux pas t’exclure toi-même.' });
+    }
+
+    const target = game.players.get(targetId);
+    if (!target) return ok(null); // déjà parti : idempotent
+
+    const now = Date.now();
+
+    // Prévenir avant de retirer : ensuite, `connectionId` n'est plus accessible.
+    if (target.connected && target.connectionId) {
+      emitter.emit(target.connectionId, SERVER_EVENTS.kicked, gameError('KICKED'));
+    }
+
+    timers.cancel(timerKeys.drop(game.code, targetId));
+    removePlayer(game, targetId, now);
+    banNickname(game, target);
+
+    logger.info(`${target.nickname} exclu de ${game.code} par l'hôte`);
+    toastAll(emitter, game, `${target.nickname} a été exclu·e de la partie.`, 'warning');
+
+    await ctx.finalize(game, now);
+    if (!(await engine.pauseIfNeeded(game))) {
+      // L'exclu était peut-être le dernier qu'on attendait : la phase peut se
+      // conclure sans lui, sans quoi tout le monde patienterait jusqu'au bout
+      // du minuteur pour un joueur qui n'existe plus.
+      await engine.advanceIfComplete(game);
+    }
+
+    return ok(null);
+  });
+
+// ─────────────────────────────────────────────────────────────
 //  Déconnexion subie
 // ─────────────────────────────────────────────────────────────
 
@@ -325,4 +393,5 @@ export const sessionHandlers: Record<string, EventHandler> = {
   [CLIENT_EVENTS.joinGame]: joinGame,
   [CLIENT_EVENTS.rejoinGame]: rejoinGame,
   [CLIENT_EVENTS.leave]: leave,
+  [CLIENT_EVENTS.kickPlayer]: kickPlayer,
 };

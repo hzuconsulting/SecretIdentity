@@ -872,11 +872,125 @@ deux réseaux mobiles peuvent toujours échouer avec un voyant vert (D-58).
 
 ---
 
+## Lot 8 — Alignement sur les règles du livret
+
+### D-61 · Le plateau fait 8 personnages, quel que soit le nombre de joueurs
+
+**Décision.** `createRound` tire `BOARD_SIZE = 8` personnages et les expose à tout le
+monde. Chaque joueur reçoit un **numéro secret** parmi les huit ; les numéros non
+attribués sont des leurres.
+
+**Pourquoi.** C'est la règle du livret, et c'est aussi ce qui rend le jeu jouable à
+trois : l'ancienne version tirait N personnages pour N joueurs, si bien qu'à trois il
+n'y avait que deux réponses possibles et un joueur pouvait gagner par élimination sans
+lire un seul pictogramme.
+
+**Coût.** Le secret change de nature. Avant, l'identité d'un joueur ne devait jamais
+sortir ; maintenant les huit personnages sont publics et c'est la **correspondance
+joueur → numéro** qu'il faut protéger. Les tests d'étanchéité ont été réécrits en
+conséquence : ils vérifient désormais la forme des objets envoyés, pas l'absence d'une
+chaîne dans les payloads.
+
+---
+
+### D-62 · Le vote est nominatif, les étiquettes anonymes disparaissent
+
+**Décision.** Plus de `labelMap` ni de séries « Joueur A / B / C ». Chaque boîtier est
+présenté avec le pseudo de son propriétaire, et on vote pour un joueur nommé.
+
+**Pourquoi.** Le livret fait voter en regardant le boîtier posé devant chacun ;
+l'anonymat était une invention de l'adaptation. Le retirer supprime au passage un
+mécanisme entier — la permutation secrète et sa protection phase par phase.
+
+**Coût.** Rupture de compatibilité totale avec les parties en cours d'une version
+antérieure. C'est ce qui justifie D-64.
+
+---
+
+### D-63 · La main de cartes Picto vit sur le joueur, pas sur la manche
+
+**Décision.** `Player.hand` porte 10 `PictoCard` distribuées **une seule fois** au
+lancement. Chaque carte a deux faces ; on n'en montre qu'une, et la carte entière part
+à la défausse à la fermeture de `CLUE_SELECTION`. Rien ne la recharge.
+
+**Pourquoi.** C'est la ressource que le jeu demande de gérer : 10 cartes pour 4 manches
+à 1-3 pictogrammes, et le départage final aux cartes gardées. La distribuer par manche,
+comme avant, retirait toute conséquence à une dépense.
+
+**Coût.** La défausse doit avoir lieu **exactement une fois** par manche. Elle est donc
+placée dans `enterPhase(…, 'GUESSING')` sous le garde `applyExitEffects` existant, le
+seul point déjà protégé contre le rejeu lors d'une reprise après pause.
+
+---
+
+### D-64 · La sauvegarde passe en version 2, et refuse la version 1
+
+**Décision.** `deserializeGame` retourne `null` sur une sauvegarde de version 1 plutôt
+que de tenter une migration.
+
+**Pourquoi.** Une partie de version 1 décrit un jeu qui n'existe plus : une identité par
+joueur, une main par manche, des étiquettes anonymes. Il n'existe pas de conversion
+honnête vers le nouveau modèle.
+
+**Coût.** Un hôte qui rafraîchit sa page avec une partie de l'ancienne version repart du
+salon. Le chemin est déjà géré en aval, et c'est très préférable à une partie à moitié
+convertie.
+
+---
+
+### D-65 · Le pictogramme d'un adversaire sort sans son identifiant de carte
+
+**Décision.** Deux types : `PlacedPicto` (avec `cardId`) pour son propre boîtier,
+`ShownPicto` (image et zone seulement) pour celui des autres.
+
+**Pourquoi.** L'adversaire n'a besoin que de l'image et de la zone pour voter. Envoyer
+l'identifiant de carte exposait un état interne sans aucun bénéfice — et, les
+identifiants étant préfixés par le joueur, il portait en plus une information qui n'a
+rien à faire là. C'est un test de fuite qui l'a signalé.
+
+**Coût.** Un type de plus, et `PictoCase` prend le type le plus faible pour servir les
+deux cas.
+
+---
+
+### D-66 · L'hôte peut exclure, en salon comme en pleine manche
+
+**Décision.** `player:kick` réutilise le chemin d'un départ volontaire. L'exclu est
+prévenu par un événement qui lui est propre **avant** d'être retiré, et son pseudo est
+banni pour la partie.
+
+**Pourquoi.** Un joueur qui gâche la soirée ne le fait pas qu'avant le lancement. La
+manche en cours se termine normalement — son boîtier est révélé sous « Joueur parti » —
+et la partie se met en pause s'il ne reste plus assez de monde, exactement comme pour un
+départ.
+
+**Coût.** Le bannissement ne tient qu'au pseudo. En pair à pair il n'existe aucune
+identité d'appareil : rien n'empêche un exclu de revenir sous un autre nom. L'exclusion
+règle le cas du joueur gênant, pas celui de l'acharné.
+
+---
+
+### D-67 · Les minuteurs restent, tout le reste passe en constantes
+
+**Décision.** `Settings` se réduit à `clueSeconds`, `guessSeconds` et `difficulty`. Le
+nombre de manches, la taille de la main et le nombre de pictogrammes deviennent des
+constantes fixées par les règles.
+
+**Pourquoi.** Ces trois valeurs ne sont pas des préférences, ce sont les règles du jeu,
+et elles se tiennent entre elles — 10 cartes n'ont de sens que pour 4 manches à 3
+pictogrammes. Le minuteur, lui, n'existe pas dans le livret : c'est l'adaptation en
+ligne qui en a besoin, et il reste donc réglable.
+
+**Coût.** Le salon perd trois rangées de réglages. Elles sont remplacées par une ligne
+qui énonce ce que les règles fixent, pour que personne ne cherche l'option disparue.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  165 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  196 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -887,7 +1001,7 @@ deux réseaux mobiles peuvent toujours échouer avec un voyant vert (D-58).
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 165 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 196 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.

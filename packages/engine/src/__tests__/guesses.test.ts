@@ -1,12 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLIENT_EVENTS, type PlayerView } from '@identite-secrete/shared';
+import {
+  BOARD_SIZE,
+  CLIENT_EVENTS,
+  STARTING_HAND_CARDS,
+  TOTAL_ROUNDS,
+  type PlayerId,
+  type PlayerView,
+  type Slot,
+} from '@identite-secrete/shared';
 import { TestClient, startTestServer, type TestHost } from './helpers';
 
 /**
- * Devinette, scores et rejouer (Lot 4).
+ * Vote, scores et rejouer.
  *
- * Les tests connaissent la vérité — ils lisent `labelMap` directement dans le
- * store — pour pouvoir composer des réponses justes ou fausses à volonté. Les
+ * Les tests connaissent la vérité — ils lisent les numéros directement dans le
+ * store — pour pouvoir composer des votes justes ou faux à volonté. Les
  * **clients**, eux, ne la reçoivent jamais : c'est ce que vérifient les tests
  * de confidentialité de `phases.test.ts`.
  */
@@ -25,16 +33,20 @@ interface Playing {
   players: TestClient[];
 }
 
-/**
- * Une partie amenée jusqu'à la phase de devinette, indices envoyés.
- *
- * `rounds` doit être une valeur proposée par le salon (3 / 5 / 8 / 10) : le
- * schéma Zod rejette tout le reste, et rejetterait alors **l'ensemble** du
- * payload de réglages. D'où l'assertion sur l'acquittement — sans elle, un
- * réglage refusé passerait inaperçu et le test tournerait sur autre chose que
- * ce qu'il croit.
- */
-async function playingGame(rounds: 3 | 5 | 8 | 10 = 3): Promise<Playing> {
+/** Pose les deux premières cartes de sa main, en zone verte. */
+async function placeTwo(client: TestClient): Promise<void> {
+  const hand = client.lastView.yourHand!;
+  await client.emit(CLIENT_EVENTS.submitClues, {
+    placed: hand.slice(0, 2).map((card) => ({
+      cardId: card.id,
+      iconId: card.front,
+      zone: 'green' as const,
+    })),
+  });
+}
+
+/** Une partie amenée jusqu'à la phase de vote, boîtiers remplis. */
+async function playingGame(): Promise<Playing> {
   const host = await connect();
   const { code } = await host.createGame('Sarah');
   const players = [host];
@@ -49,7 +61,6 @@ async function playingGame(rounds: 3 | 5 | 8 | 10 = 3): Promise<Playing> {
   const settings = await host.emit(CLIENT_EVENTS.updateSettings, {
     clueSeconds: 90,
     guessSeconds: 90,
-    rounds,
   });
   expect(settings.ok, 'réglages acceptés').toBe(true);
 
@@ -58,42 +69,46 @@ async function playingGame(rounds: 3 | 5 | 8 | 10 = 3): Promise<Playing> {
   for (const client of players) {
     await client.waitForView(
       (v) => v.phase === 'CLUE_SELECTION' && v.yourHand !== undefined,
-      'sélection',
+      'remplissage du boîtier',
       8_000,
     );
   }
 
-  for (const client of players) {
-    await client.emit(CLIENT_EVENTS.submitClues, {
-      iconIds: client.lastView.yourHand!.slice(0, 2),
-    });
-  }
+  for (const client of players) await placeTwo(client);
 
   for (const client of players) {
-    await client.waitForView((v) => v.phase === 'GUESSING', 'devinette', 4_000);
+    await client.waitForView((v) => v.phase === 'GUESSING', 'phase de vote', 4_000);
   }
 
   return { code, players };
 }
 
-/**
- * Les réponses parfaites d'un joueur : chaque étiquette reçoit l'identité
- * réellement attribuée au joueur qui se cache derrière.
- */
-async function perfectGuesses(
+/** Les votes parfaits d'un joueur : le vrai numéro de chaque adversaire. */
+async function perfectVotes(
   code: string,
   client: TestClient,
-): Promise<Record<string, string>> {
+): Promise<Record<PlayerId, Slot>> {
   const game = await server.store.get(code);
   const round = game!.rounds[game!.currentRound - 1]!;
-  const guesses: Record<string, string> = {};
+  const votes: Record<PlayerId, Slot> = {};
 
-  for (const clueSet of client.lastView.clueSets ?? []) {
-    const ownerId = round.labelMap[clueSet.label]!;
-    guesses[clueSet.label] = round.assignments.get(ownerId)!.identityId;
+  for (const opponent of client.lastView.opponents ?? []) {
+    votes[opponent.playerId] = round.assignments.get(opponent.playerId)!.slot;
   }
 
-  return guesses;
+  return votes;
+}
+
+/** Un numéro du plateau que personne ne porte — un leurre. */
+async function decoySlot(code: string): Promise<Slot> {
+  const game = await server.store.get(code);
+  const round = game!.rounds[game!.currentRound - 1]!;
+  const taken = new Set([...round.assignments.values()].map((a) => a.slot));
+
+  for (let slot = 1; slot <= BOARD_SIZE; slot++) {
+    if (!taken.has(slot)) return slot;
+  }
+  throw new Error('aucun leurre : le plateau est entièrement attribué');
 }
 
 beforeEach(async () => {
@@ -109,156 +124,176 @@ afterEach(async () => {
 
 // ─────────────────────────────────────────────────────────────
 
-describe('matériel de devinette', () => {
-  it('présente N−1 séries et N−1 identités, sans les siennes', async () => {
+describe('matériel de vote', () => {
+  it('présente les adversaires nommés, sans soi-même', async () => {
+    const { players } = await playingGame();
+
+    for (const client of players) {
+      const view: PlayerView = client.lastView;
+
+      expect(view.opponents).toHaveLength(2);
+      expect(view.opponents?.map((o) => o.playerId)).not.toContain(client.session!.playerId);
+      for (const opponent of view.opponents ?? []) {
+        expect(opponent.nickname).toBeTruthy();
+        expect(opponent.placed.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('propose les 8 numéros à 3 joueurs, leurres compris', async () => {
+    const { code, players } = await playingGame();
+    const game = await server.store.get(code);
+    const round = game!.rounds[0]!;
+
+    // Le plateau complet est public…
+    for (const client of players) {
+      expect(client.lastView.board).toHaveLength(BOARD_SIZE);
+      expect(client.lastView.board).toEqual(round.board);
+    }
+
+    // …mais seuls 3 des 8 numéros correspondent à un joueur.
+    const taken = new Set([...round.assignments.values()].map((a) => a.slot));
+    expect(taken.size).toBe(3);
+    expect(BOARD_SIZE - taken.size).toBe(5);
+  });
+
+  it('ne révèle le numéro d’aucun adversaire', async () => {
     const { code, players } = await playingGame();
     const game = await server.store.get(code);
     const round = game!.rounds[0]!;
 
     for (const client of players) {
-      const view: PlayerView = client.lastView;
-      const ownLabel = Object.entries(round.labelMap).find(
-        ([, id]) => id === client.session!.playerId,
-      )![0];
+      const own = round.assignments.get(client.session!.playerId)!.slot;
+      expect(client.lastView.yourSlot).toBe(own);
 
-      expect(view.clueSets).toHaveLength(2);
-      expect(view.clueSets?.map((set) => set.label)).not.toContain(ownLabel);
-      expect(view.identityChoices).toHaveLength(2);
-      expect(view.identityChoices).not.toContain(view.yourIdentityId);
+      // La vue ne contient aucun champ qui associerait un adversaire à un numéro.
+      for (const opponent of client.lastView.opponents ?? []) {
+        expect(Object.keys(opponent)).toEqual(['playerId', 'nickname', 'placed']);
+      }
     }
-  });
-
-  it('trie les listes pour que l’ordre n’apprenne rien', async () => {
-    const { players } = await playingGame();
-    const view = players[0]!.lastView;
-
-    const labels = view.clueSets?.map((set) => set.label) ?? [];
-    expect(labels).toEqual([...labels].sort());
-    expect(view.identityChoices).toEqual([...(view.identityChoices ?? [])].sort());
   });
 });
 
 // ─────────────────────────────────────────────────────────────
 
-describe('validation des réponses', () => {
-  it('accepte un appariement complet et valide', async () => {
+describe('validation des votes', () => {
+  it('accepte un vote complet et valide', async () => {
     const { code, players } = await playingGame();
     const host = players[0]!;
 
     const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: await perfectGuesses(code, host),
+      votes: await perfectVotes(code, host),
     });
     expect(response.ok).toBe(true);
 
-    const view = await host.waitForView((v) => v.yourGuessesSubmitted === true, 'validé');
-    expect(Object.keys(view.yourGuesses ?? {})).toHaveLength(2);
+    const view = await host.waitForView((v) => v.yourVotesSubmitted === true, 'validé');
+    expect(Object.keys(view.yourVotes ?? {})).toHaveLength(2);
   });
 
-  it('accepte une réponse partielle', async () => {
+  it('accepte un vote partiel', async () => {
     const { code, players } = await playingGame();
     const host = players[0]!;
-    const complete = await perfectGuesses(code, host);
-    const [firstLabel] = Object.keys(complete);
+    const complete = await perfectVotes(code, host);
+    const [firstId] = Object.keys(complete);
 
     const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [firstLabel!]: complete[firstLabel!]! },
+      votes: { [firstId!]: complete[firstId!]! },
     });
     expect(response.ok).toBe(true);
   });
 
-  it('refuse deux fois la même identité', async () => {
+  it('accepte un leurre : c’est un vote valide, simplement faux', async () => {
+    const { code, players } = await playingGame();
+    const host = players[0]!;
+    const opponent = host.lastView.opponents![0]!;
+
+    const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
+      votes: { [opponent.playerId]: await decoySlot(code) },
+    });
+    expect(response.ok).toBe(true);
+  });
+
+  it('refuse deux fois le même numéro', async () => {
     const { players } = await playingGame();
     const host = players[0]!;
-    const view = host.lastView;
-    const [labelA, labelB] = view.clueSets!.map((set) => set.label);
-    const identity = view.identityChoices![0]!;
+    const [a, b] = host.lastView.opponents!;
 
     const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [labelA!]: identity, [labelB!]: identity },
+      votes: { [a!.playerId]: 3, [b!.playerId]: 3 },
     });
 
     expect(response.ok).toBe(false);
     if (!response.ok) {
       expect(response.error.code).toBe('INVALID_GUESS');
-      expect(response.error.message).toContain('une seule fois');
+      expect(response.error.message).toContain('une carte Vote par numéro');
     }
   });
 
-  it('refuse de deviner sa propre série', async () => {
-    const { code, players } = await playingGame();
+  it('refuse de voter pour soi-même', async () => {
+    const { players } = await playingGame();
     const host = players[0]!;
-    const game = await server.store.get(code);
-    const round = game!.rounds[0]!;
-
-    const ownLabel = Object.entries(round.labelMap).find(
-      ([, id]) => id === host.session!.playerId,
-    )![0];
 
     const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [ownLabel]: host.lastView.identityChoices![0]! },
+      votes: { [host.session!.playerId]: 1 },
     });
 
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('INVALID_GUESS');
   });
 
-  it('refuse de proposer sa propre identité', async () => {
+  it('refuse de voter pour un joueur qui n’est pas dans la partie', async () => {
     const { players } = await playingGame();
-    const host = players[0]!;
-    const label = host.lastView.clueSets![0]!.label;
 
-    const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [label]: host.lastView.yourIdentityId! },
+    const response = await players[0]!.emit(CLIENT_EVENTS.submitGuesses, {
+      votes: { 'joueur-invente': 1 },
     });
 
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('INVALID_GUESS');
   });
 
-  it('refuse une identité qui n’est pas en jeu', async () => {
+  it('refuse un numéro hors du plateau', async () => {
     const { players } = await playingGame();
     const host = players[0]!;
-    const label = host.lastView.clueSets![0]!.label;
+    const opponent = host.lastView.opponents![0]!;
 
-    const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [label]: 'identite-inventee' },
-    });
-
-    expect(response.ok).toBe(false);
-    if (!response.ok) expect(response.error.code).toBe('INVALID_GUESS');
+    for (const slot of [0, BOARD_SIZE + 1]) {
+      const response = await host.emit(CLIENT_EVENTS.submitGuesses, {
+        votes: { [opponent.playerId]: slot },
+      });
+      expect(response.ok, `numéro ${slot} refusé`).toBe(false);
+    }
   });
 
   it('n’écrit rien quand la validation échoue', async () => {
     const { code, players } = await playingGame();
     const host = players[0]!;
 
-    await host.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: { [host.lastView.clueSets![0]!.label]: 'identite-inventee' },
-    });
+    await host.emit(CLIENT_EVENTS.submitGuesses, { votes: { 'joueur-invente': 1 } });
 
     const game = await server.store.get(code);
     const assignment = game!.rounds[0]!.assignments.get(host.session!.playerId)!;
-    expect(assignment.guesses).toEqual({});
-    expect(assignment.guessesSubmitted).toBe(false);
+    expect(assignment.votes).toEqual({});
+    expect(assignment.votesSubmitted).toBe(false);
   });
 
   it('est idempotent, et refuse de changer d’avis', async () => {
     const { code, players } = await playingGame();
     const host = players[0]!;
-    const guesses = await perfectGuesses(code, host);
+    const votes = await perfectVotes(code, host);
 
-    expect((await host.emit(CLIENT_EVENTS.submitGuesses, { guesses })).ok).toBe(true);
-    expect((await host.emit(CLIENT_EVENTS.submitGuesses, { guesses })).ok).toBe(true);
+    expect((await host.emit(CLIENT_EVENTS.submitGuesses, { votes })).ok).toBe(true);
+    expect((await host.emit(CLIENT_EVENTS.submitGuesses, { votes })).ok).toBe(true);
 
-    const labels = Object.keys(guesses);
+    const ids = Object.keys(votes);
     const swapped = {
-      [labels[0]!]: guesses[labels[1]!]!,
-      [labels[1]!]: guesses[labels[0]!]!,
+      [ids[0]!]: votes[ids[1]!]!,
+      [ids[1]!]: votes[ids[0]!]!,
     };
-    const changed = await host.emit(CLIENT_EVENTS.submitGuesses, { guesses: swapped });
+    const changed = await host.emit(CLIENT_EVENTS.submitGuesses, { votes: swapped });
 
     expect(changed.ok).toBe(false);
-    if (!changed.ok) expect(changed.error.message).toContain('déjà validées');
+    if (!changed.ok) expect(changed.error.message).toContain('déjà validés');
   });
 });
 
@@ -270,7 +305,7 @@ describe('scores', () => {
 
     for (const client of players) {
       await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
+        votes: await perfectVotes(code, client),
       });
     }
 
@@ -286,15 +321,37 @@ describe('scores', () => {
       expect(line.guessed).toBe(2);
       expect(line.total).toBe(4);
       expect(line.cumulative).toBe(4);
+      expect(line.cardsLeft).toBe(STARTING_HAND_CARDS - 2);
     }
 
     for (const reveal of view.reveals ?? []) {
       expect(reveal.guessedByPlayerIds).toHaveLength(2);
       expect(reveal.possibleGuessers).toBe(2);
+      expect(reveal.slot).toBeGreaterThanOrEqual(1);
+      expect(reveal.slot).toBeLessThanOrEqual(BOARD_SIZE);
     }
   });
 
-  it('laisse tout le monde à zéro quand personne ne répond', async () => {
+  it('ne donne aucun point pour un vote sur un leurre', async () => {
+    const { code, players } = await playingGame();
+    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+    const decoy = await decoySlot(code);
+
+    // Sarah attribue un leurre à Allan : le numéro existe, mais il n'est à
+    // personne. Le vote est accepté, et ne rapporte rien.
+    await host.emit(CLIENT_EVENTS.submitGuesses, {
+      votes: { [allan.session!.playerId]: decoy },
+    });
+
+    const view = await malo.waitForView((v) => v.phase === 'RESULTS', 'révélation', 8_000);
+
+    const sarah = view.roundScores?.find((line) => line.nickname === 'Sarah');
+    const allanLine = view.roundScores?.find((line) => line.nickname === 'Allan');
+    expect(sarah?.guessed).toBe(0);
+    expect(allanLine?.given).toBe(0);
+  });
+
+  it('laisse tout le monde à zéro quand personne ne vote', async () => {
     const { players } = await playingGame();
 
     const view = await players[0]!.waitForView(
@@ -308,20 +365,19 @@ describe('scores', () => {
     }
   });
 
-  it('compte correctement une réponse juste et une fausse', async () => {
+  it('compte correctement un vote juste et un vote faux', async () => {
     const { code, players } = await playingGame();
     const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
 
-    // Sarah répond juste ; Allan inverse ses deux réponses ; Malo ne répond pas.
-    const correct = await perfectGuesses(code, host);
-    await host.emit(CLIENT_EVENTS.submitGuesses, { guesses: correct });
+    // Sarah vote juste ; Allan inverse ses deux votes ; Malo ne vote pas.
+    await host.emit(CLIENT_EVENTS.submitGuesses, { votes: await perfectVotes(code, host) });
 
-    const allanCorrect = await perfectGuesses(code, allan);
-    const allanLabels = Object.keys(allanCorrect);
+    const allanCorrect = await perfectVotes(code, allan);
+    const allanIds = Object.keys(allanCorrect);
     await allan.emit(CLIENT_EVENTS.submitGuesses, {
-      guesses: {
-        [allanLabels[0]!]: allanCorrect[allanLabels[1]!]!,
-        [allanLabels[1]!]: allanCorrect[allanLabels[0]!]!,
+      votes: {
+        [allanIds[0]!]: allanCorrect[allanIds[1]!]!,
+        [allanIds[1]!]: allanCorrect[allanIds[0]!]!,
       },
     });
 
@@ -338,13 +394,13 @@ describe('scores', () => {
     expect(allanLine?.given).toBe(1);
   });
 
-  it('cumule les scores d’une manche à l’autre', async () => {
-    const { code, players } = await playingGame(3);
+  it('cumule les scores sur les 4 manches', async () => {
+    const { code, players } = await playingGame();
     const host = players[0]!;
 
     for (const client of players) {
       await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
+        votes: await perfectVotes(code, client),
       });
     }
 
@@ -357,51 +413,107 @@ describe('scores', () => {
         'manche 2',
         8_000,
       );
-      await client.emit(CLIENT_EVENTS.submitClues, {
-        iconIds: client.lastView.yourHand!.slice(0, 2),
-      });
+      await placeTwo(client);
     }
 
     for (const client of players) {
-      await client.waitForView((v) => v.phase === 'GUESSING', 'devinette 2', 4_000);
+      await client.waitForView((v) => v.phase === 'GUESSING', 'vote 2', 4_000);
     }
     for (const client of players) {
       await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
+        votes: await perfectVotes(code, client),
       });
     }
 
-    // La 3ᵉ manche se joue toute seule, sans réponse : elle n'ajoute aucun point.
+    // Les manches 3 et 4 se jouent toutes seules, sans vote : aucun point de plus.
     const final = await host.waitForView(
       (v) => v.phase === 'FINAL_RESULTS',
       'fin de partie',
-      15_000,
+      25_000,
     );
 
+    expect(final.roundNumber).toBe(TOTAL_ROUNDS);
     expect(final.standings?.every((line) => line.cumulative === 8)).toBe(true);
     expect(final.stats?.bestDetective?.correctGuesses).toBe(4);
+  });
+
+  it('départage les ex æquo aux cartes restantes', async () => {
+    const { players } = await playingGame();
+    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+
+    // Personne ne vote : tout le monde finit la manche à égalité de points.
+    await host.waitForView((v) => v.phase === 'SCOREBOARD', 'classement', 8_000);
+
+    // Sarah a dépensé 2 cartes comme les autres ; on creuse l'écart à la manche
+    // 2 en lui en faisant poser 3 et à Allan une seule.
+    await host.emit(CLIENT_EVENTS.nextRound, {});
+    for (const client of players) {
+      await client.waitForView(
+        (v) => v.roundNumber === 2 && v.phase === 'CLUE_SELECTION',
+        'manche 2',
+        8_000,
+      );
+    }
+
+    const spend = async (client: TestClient, count: number) => {
+      const hand = client.lastView.yourHand!;
+      await client.emit(CLIENT_EVENTS.submitClues, {
+        placed: hand.slice(0, count).map((card) => ({
+          cardId: card.id,
+          iconId: card.front,
+          zone: 'green' as const,
+        })),
+      });
+    };
+
+    await spend(host, 3);
+    await spend(allan, 1);
+    await spend(malo, 2);
+
+    // `roundNumber` est indispensable : `waitForView` accepte aussi les vues
+    // déjà reçues, et retrouverait sinon la phase de vote de la manche 1.
+    const view = await allan.waitForView(
+      (v) => v.phase === 'GUESSING' && v.roundNumber === 2,
+      'cartes défaussées',
+      8_000,
+    );
+
+    const cardsOf = (nickname: string) =>
+      view.players.find((player) => player.nickname === nickname)?.cardsLeft;
+
+    expect(cardsOf('Sarah')).toBe(STARTING_HAND_CARDS - 5);
+    expect(cardsOf('Allan')).toBe(STARTING_HAND_CARDS - 3);
+    expect(cardsOf('Malo')).toBe(STARTING_HAND_CARDS - 4);
+
+    // Le classement, à égalité de points, place Allan devant.
+    const scoreboard = await allan.waitForView(
+      (v) => v.phase === 'SCOREBOARD' && v.roundNumber === 2,
+      'classement 2',
+      8_000,
+    );
+    const order = scoreboard.standings?.map((line) => line.nickname);
+    expect(order).toEqual(['Allan', 'Malo', 'Sarah']);
   });
 });
 
 // ─────────────────────────────────────────────────────────────
 
 describe('rejouer', () => {
-  it('remet les scores à zéro et revient au salon', async () => {
-    const { code, players } = await playingGame(3);
+  /** Laisse les 4 manches se dérouler sans intervention. */
+  async function playToTheEnd(host: TestClient): Promise<void> {
+    await host.waitForView((v) => v.phase === 'FINAL_RESULTS', 'fin de partie', 25_000);
+  }
+
+  it('remet les scores à zéro, redistribue les mains et revient au salon', async () => {
+    const { code, players } = await playingGame();
     const host = players[0]!;
 
-    for (const client of players) {
-      await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
-      });
-    }
-
-    await host.waitForView((v) => v.phase === 'FINAL_RESULTS', 'fin de partie', 15_000);
+    await playToTheEnd(host);
 
     const before = await server.store.get(code);
     const usedBefore = new Set(before!.usedIdentityIds);
-    // 3 manches × 3 joueurs, sans jamais réutiliser une identité.
-    expect(usedBefore.size).toBe(9);
+    // 4 manches × 8 personnages, sans jamais réutiliser une identité.
+    expect(usedBefore.size).toBe(TOTAL_ROUNDS * BOARD_SIZE);
 
     const response = await host.emit(CLIENT_EVENTS.replay, {});
     expect(response.ok).toBe(true);
@@ -413,46 +525,29 @@ describe('rejouer', () => {
     // Les identités déjà jouées restent mémorisées pour ne pas les redonner.
     const after = await server.store.get(code);
     expect(after!.usedIdentityIds).toEqual(usedBefore);
+
+    // Nouvelle partie, mains neuves : la rareté repart de zéro.
+    expect((await host.emit(CLIENT_EVENTS.startGame, {})).ok).toBe(true);
+    const fresh = await host.waitForView(
+      (v) => v.phase === 'CLUE_SELECTION' && v.roundNumber === 1,
+      'manche 1',
+      8_000,
+    );
+    expect(fresh.yourHand).toHaveLength(STARTING_HAND_CARDS);
   });
 
   it('refuse rejouer hors de la fin de partie et par un non-hôte', async () => {
-    const { code, players } = await playingGame(3);
+    const { players } = await playingGame();
     const [host, allan] = players as [TestClient, TestClient];
 
     const tooEarly = await host.emit(CLIENT_EVENTS.replay, {});
     expect(tooEarly.ok).toBe(false);
     if (!tooEarly.ok) expect(tooEarly.error.code).toBe('WRONG_PHASE');
 
-    for (const client of players) {
-      await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
-      });
-    }
-    await host.waitForView((v) => v.phase === 'FINAL_RESULTS', 'fin de partie', 15_000);
+    await playToTheEnd(host);
 
     const notHost = await allan.emit(CLIENT_EVENTS.replay, {});
     expect(notHost.ok).toBe(false);
     if (!notHost.ok) expect(notHost.error.code).toBe('NOT_HOST');
-  });
-
-  it('permet de relancer une partie complète après rejouer', async () => {
-    const { code, players } = await playingGame(3);
-    const host = players[0]!;
-
-    for (const client of players) {
-      await client.emit(CLIENT_EVENTS.submitGuesses, {
-        guesses: await perfectGuesses(code, client),
-      });
-    }
-    await host.waitForView((v) => v.phase === 'FINAL_RESULTS', 'fin de partie', 15_000);
-    await host.emit(CLIENT_EVENTS.replay, {});
-    await host.waitForView((v) => v.phase === 'LOBBY', 'salon');
-
-    // Les réglages sont de nouveau modifiables, et la partie repart.
-    expect((await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 3 })).ok).toBe(true);
-    expect((await host.emit(CLIENT_EVENTS.startGame, {})).ok).toBe(true);
-
-    const view = await host.waitForView((v) => v.roundNumber === 1, 'manche 1');
-    expect(view.you.score).toBe(0);
   });
 });

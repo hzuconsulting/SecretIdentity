@@ -10,14 +10,20 @@
 
 export type PlayerId = string;
 
-/** Étiquette anonyme d'une série d'indices : 'A', 'B', 'C'… */
-export type Label = string;
-
 /** Identifiant d'une identité ("harry-potter"). */
 export type IdentityId = string;
 
-/** Identifiant d'une icône ("lightning"). */
+/** Identifiant d'un pictogramme ("lightning"). */
 export type IconId = string;
+
+/**
+ * Numéro d'un emplacement du plateau, de 1 à `BOARD_SIZE`.
+ *
+ * C'est le chiffre porté par une carte Mystère, et celui que désigne une carte
+ * Vote. `slot` et `board[slot - 1]` sont les deux faces d'une même chose : le
+ * numéro circule, l'identité reste secrète tant que la phase ne l'autorise pas.
+ */
+export type Slot = number;
 
 // ─────────────────────────────────────────────────────────────
 //  Données statiques
@@ -71,6 +77,50 @@ export interface GameIcon {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Cartes Picto
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Une carte Picto : **deux pictogrammes, un par face**.
+ *
+ * Le joueur choisit la face qu'il montre, et la carte entière est défaussée —
+ * l'autre face part avec elle. C'est ce qui rend chaque carte précieuse : elle
+ * porte deux idées, on n'en jouera jamais qu'une.
+ */
+export interface PictoCard {
+  /** Unique dans la main d'un joueur, pour toute la partie. */
+  id: string;
+  front: IconId;
+  back: IconId;
+}
+
+/**
+ * Les deux emplacements du boîtier.
+ *
+ * `green` — « ce pictogramme est représentatif de mon personnage ».
+ * `red`   — « ce pictogramme n'est **pas** représentatif de mon personnage ».
+ */
+export type PictoZone = 'green' | 'red';
+
+/**
+ * Un pictogramme **tel que les autres le voient** : l'image et la zone.
+ *
+ * C'est tout ce dont un adversaire a besoin pour voter, et donc tout ce qui
+ * sort. La carte d'où vient l'image ne le regarde pas.
+ */
+export interface ShownPicto {
+  /** La face montrée. */
+  iconId: IconId;
+  zone: PictoZone;
+}
+
+/** Un pictogramme posé dans son propre boîtier : en plus, la carte d'origine. */
+export interface PlacedPicto extends ShownPicto {
+  /** La carte jouée — c'est elle qui part à la défausse, avec son autre face. */
+  cardId: string;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Paramètres de partie
 // ─────────────────────────────────────────────────────────────
 
@@ -79,12 +129,16 @@ export type TimerSeconds = number | null;
 
 export type DifficultySetting = IdentityDifficulty | 'mixed';
 
+/**
+ * Ce qui reste réglable.
+ *
+ * Le reste est fixé par les règles : 4 manches, 8 personnages sur le plateau,
+ * 10 cartes Picto par joueur, 1 à 3 pictogrammes par manche. Les minuteurs, eux,
+ * sont propres à l'adaptation en ligne — le jeu de plateau n'en a pas.
+ */
 export interface Settings {
-  rounds: number;
   clueSeconds: TimerSeconds;
   guessSeconds: TimerSeconds;
-  handSize: number;
-  maxClues: number;
   difficulty: DifficultySetting;
 }
 
@@ -123,19 +177,26 @@ export interface Player {
   connectionId: string | null;
   nickname: string;
   score: number;
+  /**
+   * Main de cartes Picto — distribuée **une seule fois au lancement**, jamais
+   * rechargée. Elle rétrécit à chaque manche, et ce qu'il en reste départage les
+   * ex æquo en fin de partie. ⚠ Secret : ne sort que vers son propriétaire.
+   */
+  hand: PictoCard[];
   connected: boolean;
   disconnectedAt: number | null;
   joinedAt: number;
 }
 
 export interface PlayerRound {
-  identityId: IdentityId;
-  hand: IconId[];
-  selectedIcons: IconId[];
+  /** Le chiffre de sa carte Mystère. ⚠ SECRET jusqu'à la phase RESULTS. */
+  slot: Slot;
+  /** Ce qu'il a posé dans son boîtier. Public dès la phase GUESSING. */
+  placed: PlacedPicto[];
   cluesSubmitted: boolean;
-  /** label → identityId */
-  guesses: Record<Label, IdentityId>;
-  guessesSubmitted: boolean;
+  /** adversaire → numéro voté. Une case absente compte comme une erreur. */
+  votes: Record<PlayerId, Slot>;
+  votesSubmitted: boolean;
   roundScoreGiven: number;
   roundScoreGuessed: number;
 }
@@ -144,8 +205,15 @@ export interface Round {
   roundNumber: number;
   phase: Phase;
   phaseEndsAt: number | null;
-  /** ⚠ SECRET jusqu'à la phase RESULTS. */
-  labelMap: Record<Label, PlayerId>;
+  /**
+   * Les personnages du plateau, `board[0]` étant le numéro 1.
+   *
+   * **Public dès l'ouverture de la manche** : dans le jeu de plateau, les huit
+   * cartes sont face visible au centre de la table. Il y en a toujours
+   * `BOARD_SIZE`, même à trois joueurs — les numéros non attribués sont des
+   * leurres, et c'est précisément ce qui rend la déduction intéressante.
+   */
+  board: IdentityId[];
   assignments: Map<PlayerId, PlayerRound>;
 }
 
@@ -158,6 +226,14 @@ export interface Game {
   players: Map<PlayerId, Player>;
   rounds: Round[];
   usedIdentityIds: Set<IdentityId>;
+  /**
+   * Pseudos exclus par l'hôte, en minuscules.
+   *
+   * Un joueur exclu est retiré de `players` : son jeton de session ne
+   * correspond donc plus à rien et sa reconnexion échoue d'elle-même. Ce qu'il
+   * faut bloquer en plus, c'est le retour par le formulaire de pseudo.
+   */
+  bannedNicknames: Set<string>;
   createdAt: number;
   lastActivityAt: number;
   /**
@@ -175,6 +251,12 @@ export interface PublicPlayer {
   id: PlayerId;
   nickname: string;
   score: number;
+  /**
+   * Nombre de cartes Picto encore en main. Publiquement connu — autour d'une
+   * table, tout le monde voit la main fondre — et c'est le départage final.
+   * Leur **contenu**, lui, reste secret.
+   */
+  cardsLeft: number;
   connected: boolean;
   isHost: boolean;
 }
@@ -186,10 +268,16 @@ export interface PlayerProgress {
   submitted: boolean;
 }
 
-/** Une série d'indices anonyme présentée pendant GUESSING. */
-export interface AnonymousClueSet {
-  label: Label;
-  iconIds: IconId[];
+/**
+ * Le boîtier d'un adversaire pendant la phase de vote.
+ *
+ * Nominatif : dans les règles, chaque boîtier est posé devant son propriétaire
+ * et on vote en le regardant. Ce qui reste secret, c'est son numéro.
+ */
+export interface OpponentCase {
+  playerId: PlayerId;
+  nickname: string;
+  placed: ShownPicto[];
 }
 
 export interface RoundScoreLine {
@@ -203,18 +291,21 @@ export interface RoundScoreLine {
   total: number;
   /** Score cumulé après la manche. */
   cumulative: number;
+  /** Cartes Picto restantes — départage en cas d'égalité. */
+  cardsLeft: number;
 }
 
-/** Révélation d'une série, disponible seulement en phase RESULTS. */
-export interface RevealedClueSet {
-  label: Label;
+/** Révélation d'un boîtier, disponible seulement à partir de RESULTS. */
+export interface RoundReveal {
   playerId: PlayerId;
   nickname: string;
+  /** Le numéro qu'il fallait trouver. */
+  slot: Slot;
   identityId: IdentityId;
-  iconIds: IconId[];
-  /** Joueurs ayant correctement identifié cette série. */
+  placed: ShownPicto[];
+  /** Joueurs ayant voté juste pour lui. */
   guessedByPlayerIds: PlayerId[];
-  /** Nombre de devineurs possibles (N − 1). */
+  /** Nombre de votants possibles (N − 1). */
   possibleGuessers: number;
 }
 
@@ -240,25 +331,28 @@ export interface PlayerView {
   you: PublicPlayer;
   players: PublicPlayer[];
 
-  /** IDENTITY_REVEAL → RESULTS : uniquement SA propre identité. */
+  /** IDENTITY_REVEAL → RESULTS : les personnages du plateau, numérotés. */
+  board?: IdentityId[];
+
+  /** IDENTITY_REVEAL → RESULTS : uniquement SON numéro, et donc SON personnage. */
+  yourSlot?: Slot;
   yourIdentityId?: IdentityId;
 
-  /** CLUE_SELECTION : sa main, sa sélection en cours. */
-  yourHand?: IconId[];
-  yourSelectedIcons?: IconId[];
+  /** IDENTITY_REVEAL / CLUE_SELECTION : sa main, son boîtier en cours. */
+  yourHand?: PictoCard[];
+  yourPlaced?: PlacedPicto[];
   yourCluesSubmitted?: boolean;
 
   /** CLUE_SELECTION / GUESSING : progression booléenne des autres. */
   progress?: PlayerProgress[];
 
-  /** GUESSING : les N−1 séries anonymes + les N−1 identités possibles. */
-  clueSets?: AnonymousClueSet[];
-  identityChoices?: IdentityId[];
-  yourGuesses?: Record<Label, IdentityId>;
-  yourGuessesSubmitted?: boolean;
+  /** GUESSING : les boîtiers des adversaires, nommés. */
+  opponents?: OpponentCase[];
+  yourVotes?: Record<PlayerId, Slot>;
+  yourVotesSubmitted?: boolean;
 
   /** RESULTS : tout est révélé. */
-  reveals?: RevealedClueSet[];
+  reveals?: RoundReveal[];
   roundScores?: RoundScoreLine[];
 
   /** SCOREBOARD / FINAL_RESULTS. */
@@ -285,7 +379,7 @@ export type GameErrorCode =
   | 'WRONG_PHASE'
   | 'NOT_ENOUGH_PLAYERS'
   | 'INVALID_PAYLOAD'
-  | 'ICON_NOT_IN_HAND'
+  | 'CARD_NOT_IN_HAND'
   | 'TOO_MANY_CLUES'
   | 'NOT_ENOUGH_CLUES'
   | 'INVALID_GUESS'
@@ -293,6 +387,7 @@ export type GameErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'RATE_LIMITED'
   | 'GAME_PAUSED'
+  | 'KICKED'
   | 'INTERNAL_ERROR';
 
 export interface GameError {
@@ -303,5 +398,5 @@ export interface GameError {
   suggestion?: string;
 }
 
-/** Réponse standard des acquittements Socket.IO. */
+/** Réponse standard des acquittements. */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: GameError };

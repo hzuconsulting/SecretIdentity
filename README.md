@@ -1,8 +1,16 @@
 # Identité Secrète
 
-Jeu de soirée multijoueur en temps réel, mobile-first. 3 à 8 joueurs, chacun sur son
-téléphone. Tu reçois une identité secrète, tu la fais deviner avec des icônes, et tu
-essaies de reconnaître celles des autres.
+Adaptation en ligne de **SECRET IDENTITY** (Funnyfox), mobile-first. 3 à 8 joueurs,
+chacun sur son téléphone. Huit personnages numérotés sont posés au centre, tu reçois
+en secret le numéro de l'un d'eux, et tu le fais deviner en posant des pictogrammes
+dans ton boîtier — en vert ce qui lui ressemble, en rouge ce qui ne lui ressemble pas.
+Pendant ce temps, tu essaies de reconnaître les autres.
+
+Les règles du livret sont suivies fidèlement : **8 personnages quel que soit le nombre
+de joueurs** (donc des leurres à 3), **10 cartes Picto pour toute la partie**, jamais
+rechargées, **4 manches**, et le départage à l'égalité aux cartes gardées. La seule
+adaptation est le **minuteur par phase**, réglable dans le salon — un jeu de plateau
+n'en a pas besoin, une partie à distance si.
 
 **Aucun serveur à déployer.** Le site est un ensemble de fichiers statiques, publiable
 sur GitHub Pages, et le moteur de jeu tourne dans le navigateur du joueur qui crée la
@@ -36,7 +44,8 @@ Trois conséquences, à connaître avant de jouer :
   stockage local de l'hôte, et les autres joueurs se reconnectent tout seuls.
 - **Le moteur reste autoritaire.** Il valide tout, et n'envoie à chaque joueur que la vue
   calculée pour lui. Le fait qu'il tourne dans un navigateur ne change rien à ça : un
-  invité ne reçoit jamais l'identité d'un autre, pas plus qu'avant.
+  invité ne reçoit jamais le numéro d'un autre, pas plus qu'avant. Le plateau, lui,
+  est public — comme les huit cartes posées au centre de la table.
 
 ## Prérequis
 
@@ -70,9 +79,10 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (165 tests) |
+| `npm test` | Suite Vitest complète (196 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
+| `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8, pose vert/rouge, vote, décompte |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
 | `npm run build` | Build de production |
 | `npm run build:static` | Site statique dans `apps/web/out` |
@@ -87,14 +97,14 @@ identite-secrete/
 │       ├── constants.ts      # Toutes les valeurs de réglage et les durées
 │       ├── events.ts         # Noms d'événements + schémas Zod de validation
 │       ├── scoring.ts        # Calcul de score (fonction pure, testée)
-│       ├── dealHand.ts       # Distribution des mains avec quotas
-│       ├── identityPool.ts   # Attribution des identités
+│       ├── dealHand.ts       # Distribution des cartes Picto (deux faces) avec quotas
+│       ├── identityPool.ts   # Tirage des personnages du plateau
 │       ├── gameCode.ts       # Codes de salon
 │       ├── rng.ts            # RNG injectable (rend tout testable)
 │       ├── format.ts         # Décomptes, avatars, libellés
 │       └── data/
-│           ├── identities.ts # 293 identités
-│           └── icons.ts      # 349 icônes emoji
+│           ├── identities.ts # ~300 personnages
+│           └── icons.ts      # 349 pictogrammes emoji
 ├── packages/engine/          # Moteur autoritaire — sans réseau ni Node
 │   └── src/
 │       ├── host.ts           # GameHost : reçoit des messages, répond, diffuse
@@ -205,7 +215,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 165 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 196 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.
@@ -266,6 +276,11 @@ BASE=https://mon-site npm run test:e2e   # ou contre le site déployé
 Il n'est pas dans `npm test` : il lui faut un serveur et un vrai Chrome. **À lancer avant
 tout déploiement qui touche à `lib/net/`** — les tests unitaires ne couvrent pas cette
 couche, et c'est elle qui a produit toutes les pannes de production jusqu'ici.
+
+**`npm run test:e2e:manche`** va plus loin : quatre navigateurs, une exclusion par
+l'hôte, puis une manche entière jouée pour de vrai — plateau de 8 personnages, main de
+10 cartes, pose en vert et en rouge, vote nominatif, décompte, et la main qui a bien
+fondu à 8. C'est la vérification à lancer après un changement de règles.
 
 ## Dépannage
 

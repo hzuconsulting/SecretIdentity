@@ -1,15 +1,24 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { MAX_PLAYERS, type PublicPlayer } from '@identite-secrete/shared';
+import {
+  MAX_PLAYERS,
+  type GameError,
+  type PlayerId,
+  type PublicPlayer,
+} from '@identite-secrete/shared';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
+import { KickButton } from './KickButton';
 
 interface PlayerListProps {
   players: PublicPlayer[];
   youId: string;
+  /** Vrai chez l'hôte : lui seul peut exclure. */
+  canKick?: boolean;
+  onKick?: (playerId: PlayerId) => Promise<GameError | null>;
 }
 
-export function PlayerList({ players, youId }: PlayerListProps) {
+export function PlayerList({ players, youId, canKick = false, onKick }: PlayerListProps) {
   const connected = players.filter((player) => player.connected).length;
 
   return (
@@ -36,7 +45,7 @@ export function PlayerList({ players, youId }: PlayerListProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex items-center gap-3 rounded-tile bg-white px-4 py-3 shadow-tile"
+              className="flex flex-wrap items-center gap-3 rounded-tile bg-white px-4 py-3 shadow-tile"
             >
               <PlayerAvatar
                 playerId={player.id}
@@ -74,6 +83,15 @@ export function PlayerList({ players, youId }: PlayerListProps) {
                 >
                   👑
                 </span>
+              ) : null}
+
+              {canKick && onKick && player.id !== youId ? (
+                <KickButton
+                  playerId={player.id}
+                  nickname={player.nickname}
+                  onKick={onKick}
+                  warning="Cette personne ne pourra pas revenir avec ce pseudo."
+                />
               ) : null}
             </motion.li>
           ))}

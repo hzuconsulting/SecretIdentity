@@ -34,9 +34,10 @@ export function GameClient({ code }: { code: string }) {
     startGame,
     nextRound,
     submitClues,
-    submitGuesses,
+    submitVotes,
     replay,
     updateSettings,
+    kickPlayer,
     leave,
     dismissError,
     hosting,
@@ -66,6 +67,31 @@ export function GameClient({ code }: { code: string }) {
       if (failure.suggestion) setNickname(failure.suggestion);
     }
     setBusy(false);
+  }
+
+  // L'exclusion passe avant tout le reste : elle est définitive, et l'écran ne
+  // doit surtout pas proposer de retenter sa chance.
+  if (status === 'kicked') {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 py-10 text-center">
+        <p className="text-5xl" aria-hidden="true">
+          🚪
+        </p>
+        <h1 className="font-display text-3xl font-black uppercase leading-none">
+          Tu as été exclu·e
+        </h1>
+        <p className="text-base font-semibold text-muted">
+          L’hôte t’a sorti·e de la partie {code}. Tu peux créer ta propre partie ou en
+          rejoindre une autre.
+        </p>
+        <Link
+          href="/"
+          className="mx-auto min-h-[48px] rounded-tile bg-violet px-6 py-3 font-display text-base font-extrabold uppercase tracking-wide text-white shadow-tile"
+        >
+          Retour à l’accueil
+        </Link>
+      </main>
+    );
   }
 
   if (status === 'need-nickname' || status === 'joining') {
@@ -151,6 +177,7 @@ export function GameClient({ code }: { code: string }) {
             onUpdateSettings={updateSettings}
             onStart={startGame}
             onLeave={leave}
+            onKick={kickPlayer}
           />
         );
 
@@ -158,10 +185,12 @@ export function GameClient({ code }: { code: string }) {
         return <IdentityRevealScreen view={view} />;
 
       case 'CLUE_SELECTION':
-        return <ClueSelectionScreen view={view} onSubmit={submitClues} />;
+        return (
+          <ClueSelectionScreen view={view} onSubmit={submitClues} onKick={kickPlayer} />
+        );
 
       case 'GUESSING':
-        return <GuessingScreen view={view} onSubmit={submitGuesses} />;
+        return <GuessingScreen view={view} onSubmit={submitVotes} onKick={kickPlayer} />;
 
       case 'RESULTS':
         return <ResultsScreen view={view} />;

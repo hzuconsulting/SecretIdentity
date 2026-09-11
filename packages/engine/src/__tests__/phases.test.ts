@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  BOARD_SIZE,
   CLIENT_EVENTS,
   IDENTITY_REVEAL_MS,
   SERVER_EVENTS,
+  STARTING_HAND_CARDS,
+  TOTAL_ROUNDS,
   type PhaseChangedPayload,
   type PlayerView,
 } from '@identite-secrete/shared';
@@ -34,7 +37,7 @@ async function connect(): Promise<TestClient> {
  */
 async function startedGame(
   playerCount = 3,
-  options: { slow?: boolean; rounds?: number } = {},
+  options: { slow?: boolean } = {},
 ): Promise<{ code: string; players: TestClient[] }> {
   const host = await connect();
   const { code } = await host.createGame('Sarah');
@@ -51,9 +54,6 @@ async function startedGame(
 
   if (options.slow) {
     await host.emit(CLIENT_EVENTS.updateSettings, { clueSeconds: 90, guessSeconds: 90 });
-  }
-  if (options.rounds) {
-    await host.emit(CLIENT_EVENTS.updateSettings, { rounds: options.rounds });
   }
 
   const response = await host.emit(CLIENT_EVENTS.startGame, {});
@@ -111,7 +111,7 @@ describe('lancement de la partie', () => {
 
     await host.waitForView((v) => v.phase === 'IDENTITY_REVEAL', 'révélation');
 
-    const response = await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 10 });
+    const response = await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 45 });
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('WRONG_PHASE');
   });
@@ -128,41 +128,51 @@ describe('lancement de la partie', () => {
 // ─────────────────────────────────────────────────────────────
 
 describe('attribution de la manche', () => {
-  it('donne à chaque joueur une identité distincte', async () => {
+  it('donne à chaque joueur un personnage distinct, pris sur un plateau de 8', async () => {
     const { code, players } = await startedGame(4);
 
     for (const client of players) {
-      await client.waitForView((v) => v.yourIdentityId !== undefined, 'identité reçue');
+      await client.waitForView((v) => v.yourIdentityId !== undefined, 'personnage reçu');
     }
 
     const identities = players.map((client) => client.lastView.yourIdentityId);
     expect(new Set(identities).size).toBe(4);
     expect(identities.every((id) => typeof id === 'string')).toBe(true);
 
+    // Le plateau, lui, compte toujours 8 personnages : 4 leurres restent.
+    for (const client of players) {
+      expect(client.lastView.board).toHaveLength(BOARD_SIZE);
+      expect(client.lastView.board).toContain(client.lastView.yourIdentityId);
+    }
+
     const game = await server.store.get(code);
-    expect(game?.usedIdentityIds.size).toBe(4);
+    expect(game?.usedIdentityIds.size).toBe(BOARD_SIZE);
   });
 
-  it('donne à chaque joueur une main de la bonne taille', async () => {
+  it('donne à chaque joueur une main de 10 cartes, pour toute la partie', async () => {
     const { code, players } = await startedGame();
     const game = await server.store.get(code);
-    const round = game?.rounds[0];
 
-    expect(round?.assignments.size).toBe(3);
-    for (const assignment of round?.assignments.values() ?? []) {
-      expect(assignment.hand).toHaveLength(game!.settings.handSize);
-      expect(new Set(assignment.hand).size).toBe(assignment.hand.length);
+    expect(game?.rounds[0]?.assignments.size).toBe(3);
+    for (const player of game!.players.values()) {
+      expect(player.hand).toHaveLength(STARTING_HAND_CARDS);
+      expect(new Set(player.hand.map((card) => card.id)).size).toBe(STARTING_HAND_CARDS);
     }
     expect(players).toHaveLength(3);
   });
 
-  it('attribue une étiquette distincte à chaque joueur', async () => {
+  it('attribue un numéro distinct à chaque joueur, et laisse les autres vides', async () => {
     const { code } = await startedGame(4);
     const game = await server.store.get(code);
-    const labelMap = game?.rounds[0]?.labelMap ?? {};
+    const round = game!.rounds[0]!;
 
-    expect(Object.keys(labelMap).sort()).toEqual(['A', 'B', 'C', 'D']);
-    expect(new Set(Object.values(labelMap)).size).toBe(4);
+    const slots = [...round.assignments.values()].map((assignment) => assignment.slot);
+    expect(slots).toHaveLength(4);
+    expect(new Set(slots).size).toBe(4);
+    for (const slot of slots) {
+      expect(slot).toBeGreaterThanOrEqual(1);
+      expect(slot).toBeLessThanOrEqual(BOARD_SIZE);
+    }
   });
 
   it('ne réutilise pas une identité d’une manche à l’autre', async () => {
@@ -280,11 +290,11 @@ describe('transitions et échéances', () => {
     if (!notHost.ok) expect(notHost.error.code).toBe('NOT_HOST');
   });
 
-  it('termine la partie après le nombre de manches réglé', async () => {
-    const { players } = await startedGame(3, { rounds: 3 });
+  it('termine la partie après les 4 manches du livret', async () => {
+    const { players } = await startedGame(3);
     const host = players[0]!;
 
-    for (let round = 1; round <= 3; round++) {
+    for (let round = 1; round <= TOTAL_ROUNDS; round++) {
       await host.waitForView((v) => v.roundNumber === round, `manche ${round}`, 10_000);
       await runToScoreboard(host);
       await host.emit(CLIENT_EVENTS.nextRound, {});
@@ -305,54 +315,50 @@ describe('transitions et échéances', () => {
 // ─────────────────────────────────────────────────────────────
 
 describe('confidentialité en cours de manche', () => {
-  it('ne révèle à un joueur que sa propre identité', async () => {
+  it('ne révèle à un joueur que son propre numéro', async () => {
     const { code, players } = await startedGame(3, { slow: true });
 
-    // On attend que tout le monde soit en sélection d'indices, puis on fige ce
-    // qui a été reçu jusque-là : après RESULTS, tout est révélé légitimement.
+    // Les huit personnages du plateau sont publics — c'est la règle, ils sont
+    // face visible au centre de la table. Le secret n'est plus « quels
+    // personnages », mais « qui porte quel numéro ».
     for (const client of players) {
-      await client.waitForView((v) => v.phase === 'CLUE_SELECTION', 'sélection', 8_000);
+      await client.waitForView((v) => v.phase === 'CLUE_SELECTION', 'boîtier', 8_000);
     }
-    const snapshots = players.map((client) => ({
-      own: client.lastView.yourIdentityId,
-      payloads: client.allPayloads.slice(),
-    }));
 
     const game = await server.store.get(code);
     const round = game!.rounds[0]!;
 
-    for (const snapshot of snapshots) {
-      for (const assignment of round.assignments.values()) {
-        if (assignment.identityId === snapshot.own) continue;
+    for (const client of players) {
+      const own = round.assignments.get(client.session!.playerId)!.slot;
 
-        for (const payload of snapshot.payloads) {
-          expect(
-            containsValue(payload, assignment.identityId),
-            `fuite de ${assignment.identityId}`,
-          ).toBe(false);
-        }
+      for (const view of client.received) {
+        if (view.yourSlot !== undefined) expect(view.yourSlot).toBe(own);
+        // La révélation des numéros n'arrive qu'en phase RESULTS.
+        expect(view.reveals, `reveals en phase ${view.phase}`).toBeUndefined();
       }
     }
   });
 
-  it('ne révèle jamais la correspondance étiquette → joueur avant RESULTS', async () => {
+  it('n’envoie du boîtier adverse que l’image et la zone', async () => {
     const { players } = await startedGame();
     const host = players[0]!;
 
     await runToScoreboard(host);
 
     for (const client of players) {
-      expect(JSON.stringify(client.allPayloads)).not.toContain('labelMap');
-
       for (const view of client.received) {
-        // Les séries anonymes n'existent qu'en phase de devinette, et elles
-        // ne portent qu'une étiquette — jamais l'identifiant du joueur.
+        // Les boîtiers adverses n'existent qu'en phase de vote.
         if (view.phase !== 'GUESSING') {
-          expect(view.clueSets, `clueSets en phase ${view.phase}`).toBeUndefined();
+          expect(view.opponents, `opponents en phase ${view.phase}`).toBeUndefined();
           continue;
         }
-        for (const clueSet of view.clueSets ?? []) {
-          expect(Object.keys(clueSet).sort()).toEqual(['iconIds', 'label']);
+
+        for (const opponent of view.opponents ?? []) {
+          // Le pseudo et les pictogrammes, rien d'autre : surtout pas le numéro.
+          expect(Object.keys(opponent).sort()).toEqual(['nickname', 'placed', 'playerId']);
+          for (const picto of opponent.placed) {
+            expect(Object.keys(picto).sort()).toEqual(['iconId', 'zone']);
+          }
         }
       }
     }
@@ -363,24 +369,28 @@ describe('confidentialité en cours de manche', () => {
     await players[0]!.waitForView((v) => v.yourHand !== undefined, 'main reçue', 8_000);
 
     const game = await server.store.get(code);
-    const round = game!.rounds[0]!;
 
     const hostId = players[0]!.session!.playerId;
-    const hostHand = new Set(round.assignments.get(hostId)!.hand);
+    const hostHand = game!.players.get(hostId)!.hand;
     const hostView = players[0]!.lastView;
 
-    expect(new Set(hostView.yourHand)).toEqual(hostHand);
+    expect(hostView.yourHand?.map((card) => card.id)).toEqual(hostHand.map((card) => card.id));
 
     // Les autres joueurs reçoivent leur propre main, pas celle de l'hôte.
     for (const client of players.slice(1)) {
       const view = await client.waitForView(
         (v) => v.phase === 'CLUE_SELECTION' && v.yourHand !== undefined,
-        'sélection',
+        'boîtier',
         8_000,
       );
-      const ownHand = new Set(round.assignments.get(client.session!.playerId)!.hand);
-      expect(new Set(view.yourHand)).toEqual(ownHand);
+      const ownHand = game!.players.get(client.session!.playerId)!.hand;
+      expect(view.yourHand?.map((card) => card.id)).toEqual(ownHand.map((card) => card.id));
       expect(view.progress?.every((entry) => entry.submitted === false)).toBe(true);
+
+      // Et aucune carte de l'hôte ne transite par leur canal.
+      for (const card of hostHand) {
+        expect(containsValue(client.allPayloads, card.id), `fuite de ${card.id}`).toBe(false);
+      }
     }
   });
 

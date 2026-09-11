@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BOARD_SIZE,
   DEFAULT_SETTINGS,
   DIFFICULTY_OPTIONS,
-  HAND_SIZE_OPTIONS,
-  MAX_CLUES_OPTIONS,
-  ROUNDS_OPTIONS,
+  MAX_PICTOS,
   TIMER_OPTIONS,
 } from '../constants';
 import {
   createGameSchema,
   fail,
   joinGameSchema,
+  kickPlayerSchema,
   ok,
   settingsSchema,
   submitCluesSchema,
+  submitGuessesSchema,
   updateSettingsSchema,
 } from '../events';
 import {
@@ -41,17 +42,11 @@ describe('schémas Zod', () => {
   });
 
   it('accepte toutes les options proposées dans le salon', () => {
-    for (const rounds of ROUNDS_OPTIONS) {
-      expect(updateSettingsSchema.safeParse({ rounds }).success).toBe(true);
-    }
     for (const clueSeconds of TIMER_OPTIONS) {
       expect(updateSettingsSchema.safeParse({ clueSeconds }).success).toBe(true);
     }
-    for (const handSize of HAND_SIZE_OPTIONS) {
-      expect(updateSettingsSchema.safeParse({ handSize }).success).toBe(true);
-    }
-    for (const maxClues of MAX_CLUES_OPTIONS) {
-      expect(updateSettingsSchema.safeParse({ maxClues }).success).toBe(true);
+    for (const guessSeconds of TIMER_OPTIONS) {
+      expect(updateSettingsSchema.safeParse({ guessSeconds }).success).toBe(true);
     }
     for (const difficulty of DIFFICULTY_OPTIONS) {
       expect(updateSettingsSchema.safeParse({ difficulty }).success).toBe(true);
@@ -59,14 +54,47 @@ describe('schémas Zod', () => {
   });
 
   it('refuse une valeur hors options', () => {
-    expect(updateSettingsSchema.safeParse({ rounds: 7 }).success).toBe(false);
     expect(updateSettingsSchema.safeParse({ clueSeconds: 15 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ difficulty: 'impossible' }).success).toBe(false);
+    // Un réglage qui n'existe plus est écarté, et il ne reste rien à modifier.
+    expect(updateSettingsSchema.safeParse({ rounds: 8 }).success).toBe(false);
     expect(updateSettingsSchema.safeParse({}).success).toBe(false);
   });
 
-  it('refuse une sélection d’indices vide', () => {
-    expect(submitCluesSchema.safeParse({ iconIds: [] }).success).toBe(false);
-    expect(submitCluesSchema.safeParse({ iconIds: ['fire'] }).success).toBe(true);
+  it('refuse un boîtier vide, accepte un pictogramme posé', () => {
+    const picto = { cardId: 'c1', iconId: 'fire', zone: 'green' };
+
+    expect(submitCluesSchema.safeParse({ placed: [] }).success).toBe(false);
+    expect(submitCluesSchema.safeParse({ placed: [picto] }).success).toBe(true);
+    expect(
+      submitCluesSchema.safeParse({ placed: [{ ...picto, zone: 'bleu' }] }).success,
+    ).toBe(false);
+    // Le plafond de la règle est appliqué par le moteur, avec un vrai message :
+    // Zod ne borne ici que l'absurde.
+    expect(
+      submitCluesSchema.safeParse({
+        placed: Array.from({ length: MAX_PICTOS + 1 }, (_, i) => ({
+          ...picto,
+          cardId: `c${i}`,
+        })),
+      }).success,
+    ).toBe(true);
+  });
+
+  it('borne les votes aux numéros du plateau', () => {
+    expect(submitGuessesSchema.safeParse({ votes: { p1: 1 } }).success).toBe(true);
+    expect(submitGuessesSchema.safeParse({ votes: { p1: BOARD_SIZE } }).success).toBe(true);
+    expect(submitGuessesSchema.safeParse({ votes: { p1: 0 } }).success).toBe(false);
+    expect(
+      submitGuessesSchema.safeParse({ votes: { p1: BOARD_SIZE + 1 } }).success,
+    ).toBe(false);
+    expect(submitGuessesSchema.safeParse({ votes: { p1: 1.5 } }).success).toBe(false);
+  });
+
+  it('valide une demande d’exclusion', () => {
+    expect(kickPlayerSchema.safeParse({ playerId: 'p1' }).success).toBe(true);
+    expect(kickPlayerSchema.safeParse({ playerId: '' }).success).toBe(false);
+    expect(kickPlayerSchema.safeParse({}).success).toBe(false);
   });
 });
 

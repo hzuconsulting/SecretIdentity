@@ -68,11 +68,16 @@ describe('aller-retour de sérialisation', () => {
       const original = before.rounds[before.currentRound - 1]!;
       expect(round.assignments).toBeInstanceOf(Map);
       expect(round.assignments.size).toBe(original.assignments.size);
-      expect(round.labelMap).toEqual(original.labelMap);
+      expect(round.board).toEqual(original.board);
 
       for (const [playerId, assignment] of original.assignments) {
-        expect(round.assignments.get(playerId)?.identityId).toBe(assignment.identityId);
-        expect(round.assignments.get(playerId)?.hand).toEqual(assignment.hand);
+        expect(round.assignments.get(playerId)?.slot).toBe(assignment.slot);
+        expect(round.assignments.get(playerId)?.placed).toEqual(assignment.placed);
+      }
+
+      // Les mains vivent sur le joueur, et traversent la sauvegarde intactes.
+      for (const [playerId, player] of before.players) {
+        expect(after.players.get(playerId)?.hand).toEqual(player.hand);
       }
     } finally {
       server.close();
@@ -135,7 +140,7 @@ describe('reprise du moteur après rechargement', () => {
 
       const game = (await first.store.get(started.code))!;
       const round = game.rounds[game.currentRound - 1]!;
-      identities = [...round.assignments.values()].map((a) => a.identityId);
+      identities = [...round.assignments.values()].map((a) => round.board[a.slot - 1]!);
 
       // L'onglet de l'hôte disparaît : c'est tout ce qu'on garde de la partie.
       saved = JSON.parse(JSON.stringify(serializeGame(game)));
@@ -284,7 +289,7 @@ describe('événements inconnus', () => {
       expect(response.ok).toBe(false);
 
       // Le nœud répond toujours après coup.
-      const still = await host.emit(CLIENT_EVENTS.updateSettings, { rounds: 5 });
+      const still = await host.emit(CLIENT_EVENTS.updateSettings, { guessSeconds: 45 });
       expect(still.ok).toBe(true);
     } finally {
       server.close();

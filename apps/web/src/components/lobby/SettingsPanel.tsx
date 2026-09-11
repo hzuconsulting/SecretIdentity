@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import {
   DIFFICULTY_OPTIONS,
-  HAND_SIZE_OPTIONS,
-  MAX_CLUES_OPTIONS,
-  ROUNDS_OPTIONS,
+  MAX_PICTOS,
+  STARTING_HAND_CARDS,
   TIMER_OPTIONS,
+  TOTAL_ROUNDS,
   formatDifficulty,
   formatTimerOption,
   type Settings,
@@ -51,15 +51,7 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
 
       <div className="flex flex-col gap-4 rounded-card bg-white p-5 shadow-card">
         <Row
-          label="Manches"
-          options={ROUNDS_OPTIONS}
-          current={settings.rounds}
-          format={(value) => String(value)}
-          disabled={!canEdit || pending === 'rounds'}
-          onSelect={(value) => void apply('rounds', value)}
-        />
-        <Row
-          label="Temps pour les indices"
+          label="Temps pour poser ses pictos"
           options={TIMER_OPTIONS}
           current={settings.clueSeconds}
           format={formatTimerOption}
@@ -67,7 +59,7 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
           onSelect={(value) => void apply('clueSeconds', value)}
         />
         <Row
-          label="Temps pour deviner"
+          label="Temps pour voter"
           options={TIMER_OPTIONS}
           current={settings.guessSeconds}
           format={formatTimerOption}
@@ -75,29 +67,22 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
           onSelect={(value) => void apply('guessSeconds', value)}
         />
         <Row
-          label="Icônes par main"
-          options={HAND_SIZE_OPTIONS}
-          current={settings.handSize}
-          format={(value) => String(value)}
-          disabled={!canEdit || pending === 'handSize'}
-          onSelect={(value) => void apply('handSize', value)}
-        />
-        <Row
-          label="Indices maximum"
-          options={MAX_CLUES_OPTIONS}
-          current={settings.maxClues}
-          format={(value) => String(value)}
-          disabled={!canEdit || pending === 'maxClues'}
-          onSelect={(value) => void apply('maxClues', value)}
-        />
-        <Row
-          label="Difficulté"
+          label="Difficulté des personnages"
           options={DIFFICULTY_OPTIONS}
           current={settings.difficulty}
           format={formatDifficulty}
           disabled={!canEdit || pending === 'difficulty'}
           onSelect={(value) => void apply('difficulty', value)}
         />
+
+        {/*
+          Le reste est fixé par les règles du jeu, pas par le salon. L'afficher
+          quand même évite la question « où est passé le nombre de manches ? ».
+        */}
+        <p className="border-t border-ink/5 pt-3 text-xs font-semibold text-muted">
+          Fixé par les règles : {TOTAL_ROUNDS} manches · {STARTING_HAND_CARDS} cartes Picto
+          par joueur pour toute la partie · 1 à {MAX_PICTOS} pictogrammes par manche.
+        </p>
       </div>
     </section>
   );
