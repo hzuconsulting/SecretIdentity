@@ -3,6 +3,9 @@ import { ICONS, ICONS_BY_CATEGORY } from './data/icons';
 import { shuffle, type Rng } from './rng';
 import type { GameIcon, IconCategory, IconId, PictoCard } from './types';
 
+/** Pictogrammes portés par une carte : deux par face, deux faces. */
+export const ICONS_PER_CARD = 4;
+
 /**
  * Distribution d'une main de pictogrammes.
  *
@@ -40,34 +43,39 @@ export interface DealPictoCardsOptions {
 /**
  * Distribue les cartes Picto d'un joueur pour **toute la partie**.
  *
- * Chaque carte porte deux pictogrammes, un par face : on tire donc deux fois
- * plus d'icônes que de cartes, puis on les apparie. L'appariement est aveugle,
- * et c'est ce qui crée les dilemmes — la bonne image se retrouve régulièrement
- * au dos de l'autre bonne image, et il faudra choisir.
+ * Chaque carte porte quatre pictogrammes, deux par face : on tire donc quatre
+ * fois plus d'icônes que de cartes, sans doublon dans la main, puis on les
+ * groupe. Le regroupement est aveugle, et c'est ce qui crée les dilemmes — la
+ * bonne image partage régulièrement sa carte avec une autre bonne image, et il
+ * faudra choisir laquelle sacrifier.
  */
 export function dealPictoCards(options: DealPictoCardsOptions, rng: Rng): PictoCard[] {
   const { cardCount } = options;
   if (cardCount <= 0) return [];
 
   const icons = dealHand(
-    { handSize: cardCount * 2, ...(options.pool ? { pool: options.pool } : {}) },
+    { handSize: cardCount * ICONS_PER_CARD, ...(options.pool ? { pool: options.pool } : {}) },
     rng,
   );
 
   const cards: PictoCard[] = [];
   for (let index = 0; index < cardCount; index++) {
-    const front = icons[index * 2];
-    const back = icons[index * 2 + 1];
-    if (!front || !back) throw new Error('dealPictoCards: icônes insuffisantes');
-    cards.push({ id: `${options.idPrefix ?? ''}c${index + 1}`, front, back });
+    const [a, b, c, d] = icons.slice(index * ICONS_PER_CARD, (index + 1) * ICONS_PER_CARD);
+    if (!a || !b || !c || !d) throw new Error('dealPictoCards: icônes insuffisantes');
+    cards.push({ id: `${options.idPrefix ?? ''}c${index + 1}`, front: [a, b], back: [c, d] });
   }
 
   return cards;
 }
 
-/** Les deux faces d'une carte, dans l'ordre. Sert aux validations et à l'affichage. */
-export function cardFaces(card: PictoCard): [IconId, IconId] {
-  return [card.front, card.back];
+/**
+ * Les quatre pictogrammes d'une carte : recto puis verso.
+ *
+ * Seul point d'accès pour savoir si un pictogramme est « sur la carte » : la
+ * validation, le tirage automatique et l'affichage passent tous par ici.
+ */
+export function cardIcons(card: PictoCard): IconId[] {
+  return [...card.front, ...card.back];
 }
 
 export function dealHand(options: DealHandOptions, rng: Rng): IconId[] {

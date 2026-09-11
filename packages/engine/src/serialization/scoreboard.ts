@@ -22,19 +22,28 @@ import { roundScoringInput } from '../game/roundRules';
 
 /**
  * Classement cumulé, décroissant.
- * `round` sert à afficher les points gagnés dans la manche écoulée.
+ *
+ * `rounds` désigne les manches dont on détaille les points — faire deviner,
+ * bonnes réponses. La manche qui vient de se jouer pour un écran de fin de
+ * manche ; **toutes** pour l'écran de fin de partie. Le cumul, lui, vient
+ * toujours du score du joueur.
  *
  * Départage du livret : à égalité de points, **celui qui a gardé le plus de
  * cartes Picto** l'emporte ; si l'égalité persiste, les joueurs partagent la
  * victoire — ce que l'ordre traduit en les laissant côte à côte.
  */
-export function buildStandings(game: Game, round: Round | null): RoundScoreLine[] {
+export function buildStandings(game: Game, rounds: readonly Round[]): RoundScoreLine[] {
   const lines: RoundScoreLine[] = [];
 
   for (const player of playersInJoinOrder(game)) {
-    const assignment = round?.assignments.get(player.id) ?? null;
-    const given = assignment?.roundScoreGiven ?? 0;
-    const guessed = assignment?.roundScoreGuessed ?? 0;
+    let given = 0;
+    let guessed = 0;
+
+    for (const round of rounds) {
+      const assignment = round.assignments.get(player.id);
+      given += assignment?.roundScoreGiven ?? 0;
+      guessed += assignment?.roundScoreGuessed ?? 0;
+    }
 
     lines.push({
       playerId: player.id,

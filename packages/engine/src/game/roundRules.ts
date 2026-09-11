@@ -1,4 +1,5 @@
 import {
+  cardIcons,
   pickOne,
   scoreRound,
   type Game,
@@ -70,7 +71,8 @@ function everyActiveParticipant(
  *  - le joueur a validé → on ne touche à rien ;
  *  - il avait posé sans valider → on valide tel quel ;
  *  - il n'avait rien posé, ou il est déconnecté → **une carte de sa main est
- *    tirée au sort**, face au hasard, en zone verte. Elle sera probablement
+ *    tirée au sort**, l'un de ses quatre pictogrammes au hasard, en zone verte.
+ *    Elle sera probablement
  *    fausse, mais un boîtier vide priverait les autres d'une réponse à trouver
  *    et fausserait leur score maximum.
  *
@@ -89,7 +91,7 @@ export function autoSubmitClues(game: Game, round: Round, rng: Rng): PlayerId[] 
       const hand = game.players.get(playerId)?.hand ?? [];
       if (hand.length > 0) {
         const card = pickOne(rng, hand);
-        const iconId = pickOne(rng, [card.front, card.back]);
+        const iconId = pickOne(rng, cardIcons(card));
         assignment.placed = [{ cardId: card.id, iconId, zone: 'green' }];
         forced.push(playerId);
       }

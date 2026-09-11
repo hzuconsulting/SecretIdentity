@@ -97,7 +97,7 @@ identite-secrete/
 │       ├── constants.ts      # Toutes les valeurs de réglage et les durées
 │       ├── events.ts         # Noms d'événements + schémas Zod de validation
 │       ├── scoring.ts        # Calcul de score (fonction pure, testée)
-│       ├── dealHand.ts       # Distribution des cartes Picto (deux faces) avec quotas
+│       ├── dealHand.ts       # Distribution des cartes Picto (4 pictos, 2 par face) avec quotas
 │       ├── identityPool.ts   # Tirage des personnages du plateau
 │       ├── gameCode.ts       # Codes de salon
 │       ├── rng.ts            # RNG injectable (rend tout testable)
@@ -163,13 +163,30 @@ npx peerjs --port 9000 --path /peer
 puis on renseigne `NEXT_PUBLIC_PEER_HOST` & co. (voir [`.env.example`](./.env.example)).
 
 **Les serveurs ICE.** Ils permettent aux navigateurs de trouver un chemin l'un vers
-l'autre. Les STUN publics configurés par défaut suffisent au cas courant — tout le monde
-dans la même pièce, sur le même Wi-Fi, ce qui est exactement le cadre d'un jeu de soirée.
+l'autre. Les STUN suffisent au cas courant — tout le monde dans la même pièce, sur le même
+Wi-Fi, ce qui est exactement le cadre d'un jeu de soirée : ils apprennent à chaque pair son
+adresse publique, et les deux se parlent ensuite directement.
 
-Ils **ne suffisent pas** derrière certains NAT symétriques, typiquement quand deux joueurs
-sont sur deux réseaux mobiles différents. Il faut alors un relais TURN, qui ne peut pas
-être gratuit puisqu'il fait transiter tout le trafic. Il se branche via
-`NEXT_PUBLIC_ICE_SERVERS`, sans toucher au code.
+Ils **ne suffisent pas** derrière un NAT symétrique, typiquement quand deux joueurs sont
+sur deux réseaux mobiles différents : aucune adresse devinée ne fonctionne, et le canal ne
+s'ouvre jamais. Il faut alors un **relais TURN**, qui fait transiter le trafic.
+
+Un relais public mutualisé (`openrelay.metered.ca`) est donc inclus par défaut, sur trois
+ports — 80, 443, et 443 en TCP — pour passer le plus grand nombre de pare-feux. C'est un
+service gratuit : il peut être lent, saturé, ou disparaître. Pour en brancher un à soi,
+`NEXT_PUBLIC_ICE_SERVERS` **remplace** toute la liste :
+
+```bash
+NEXT_PUBLIC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:mon-turn:3478","username":"u","credential":"p"}]'
+```
+
+> Les identifiants TURN sont en clair dans le bundle, et il n'y a pas moyen de faire
+> autrement : sans serveur, tout ce que le navigateur doit connaître y est de toute façon.
+> Un relais destiné à cet usage doit donc avoir ses propres quotas.
+
+**Pour savoir si le relais marche depuis ce téléphone-là**, ouvrir `/diagnostic` : la
+cinquième étape demande une vraie allocation et rapporte les codes d'erreur ICE (401 pour
+des identifiants refusés, 701 pour un serveur injoignable).
 
 ## Variables d'environnement
 
@@ -184,7 +201,7 @@ Toutes optionnelles. Voir [`.env.example`](./.env.example), commenté.
 | `NEXT_PUBLIC_PEER_PATH` | `/` | Chemin du PeerServer |
 | `NEXT_PUBLIC_PEER_KEY` | — | Clé du PeerServer |
 | `NEXT_PUBLIC_PEER_SECURE` | `true` | `false` pour un PeerServer en clair (local) |
-| `NEXT_PUBLIC_ICE_SERVERS` | 2 STUN publics | Tableau JSON de `RTCIceServer`, TURN compris |
+| `NEXT_PUBLIC_ICE_SERVERS` | 2 STUN + 3 TURN publics | Tableau JSON de `RTCIceServer`. **Remplace** toute la liste |
 
 ⚠️ Ces variables sont figées au moment du `next build`. Les changer impose de
 **reconstruire**, pas seulement de redémarrer.
@@ -279,8 +296,10 @@ couche, et c'est elle qui a produit toutes les pannes de production jusqu'ici.
 
 **`npm run test:e2e:manche`** va plus loin : quatre navigateurs, une exclusion par
 l'hôte, puis une manche entière jouée pour de vrai — plateau de 8 personnages, main de
-10 cartes, pose en vert et en rouge, vote nominatif, décompte, et la main qui a bien
-fondu à 8. C'est la vérification à lancer après un changement de règles.
+10 cartes, pose en vert et en rouge, vote nominatif, dépouillement des votes, une
+révélation qui **reste affichée** tant que l'hôte n'a pas lancé la manche suivante, et
+la main qui a bien fondu à 8. C'est la vérification à lancer après un changement de
+règles.
 
 ## Dépannage
 
@@ -293,7 +312,7 @@ Soit le navigateur est trop ancien, soit le site n'est pas servi en contexte sé
 Vérifie que l'URL commence par `https://` — ou `http://localhost`.
 
 **Le bandeau n'est pas vert : va voir `/diagnostic`**
-La page teste le transport en quatre étapes et dit laquelle échoue, avec l'état ICE et
+La page teste le transport en cinq étapes et dit laquelle échoue, avec l'état ICE et
 les types de candidats obtenus. C'est la seule information exploitable quand la panne est
 sur le téléphone de quelqu'un d'autre — un bouton copie le rapport entier.
 
@@ -303,15 +322,17 @@ sur le téléphone de quelqu'un d'autre — un bouton copie le rapport entier.
 | Mise en relation | Le courtier ne répond pas : connexion ou pare-feu |
 | Ouverture du canal | Piste réseau (ICE). **La boucle locale peut mentir ici** : certains navigateurs refusent de se connecter à eux-mêmes tout en marchant entre deux appareils — tenter une vraie partie avant de conclure |
 | Passage d'un message | Le navigateur n'écrit pas sur le canal. C'est le cas Safari de D-59 ; s'il réapparaît, c'est une régression de la sérialisation, et le premier test de `protocol.test.ts` devrait l'avoir attrapée |
+| Relais TURN | Aucun relais n'a alloué depuis ce réseau. **N'empêche pas de jouer sur un Wi-Fi commun** — mais rend improbable une partie entre deux réseaux différents. Le détail donne les codes d'erreur ICE |
 
 **« Cette partie n'est plus ouverte »**
 L'hôte a fermé son onglet, ou le code a été mal recopié. Il faut recréer une partie :
 c'est la contrepartie de l'absence de serveur, l'état ne vit nulle part ailleurs.
 
 **Un joueur n'arrive pas à rejoindre, les autres si**
-Presque toujours un problème de NAT : ce joueur est sur un autre réseau que l'hôte.
-Le mettre sur le même Wi-Fi règle le cas immédiatement ; sinon il faut un relais TURN
-(voir *Réseau*).
+Presque toujours un problème de NAT : ce joueur est sur un autre réseau que l'hôte. Le
+relais par défaut est censé couvrir ce cas — faire ouvrir `/diagnostic` à ce joueur et
+regarder l'étape *Relais TURN*. Si elle échoue, le mettre sur le même Wi-Fi règle le cas
+immédiatement ; sinon il faut brancher un relais à soi (voir *Réseau*).
 
 **Le site s'affiche sans aucun style sur GitHub Pages**
 Le `NEXT_PUBLIC_BASE_PATH` ne correspond pas au nom du dépôt. Le workflow le calcule

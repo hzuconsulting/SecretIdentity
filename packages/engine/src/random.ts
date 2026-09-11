@@ -44,3 +44,31 @@ export function createId(): string {
   available.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+/**
+ * Empreinte SHA-256, en hexadécimal.
+ *
+ * Sert à publier un **engagement** sur un jeton de session sans publier le
+ * jeton : l'instantané de relais porte l'empreinte, le joueur présente le
+ * jeton, et le nouvel hôte vérifie la correspondance. Il peut ainsi reconnaître
+ * tout le monde sans jamais avoir eu de quoi usurper personne.
+ *
+ * Asynchrone parce que `crypto.subtle` l'est — c'est la même API des deux
+ * côtés, navigateur en contexte sécurisé et Node ≥ 19, exactement comme
+ * `getRandomValues` ci-dessus.
+ */
+export async function sha256Hex(input: string): Promise<string> {
+  const subtle = webCrypto().subtle;
+  if (!subtle) {
+    throw new Error(
+      'crypto.subtle est indisponible. Le jeu doit être servi en https ou depuis localhost.',
+    );
+  }
+
+  const bytes = new TextEncoder().encode(input);
+  const digest = await subtle.digest('SHA-256', bytes);
+
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}

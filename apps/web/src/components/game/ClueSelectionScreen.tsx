@@ -41,8 +41,9 @@ const AUTO_SUBMIT_AT_SECONDS = 1;
  * Remplissage du boîtier.
  *
  * Trois décisions par pictogramme, là où il n'y en avait qu'une : **quelle
- * carte**, **quelle face** (chaque carte en porte deux, et jouer l'une jette
- * l'autre), et **quelle zone** — vert pour affirmer, rouge pour nier.
+ * carte**, **quel pictogramme** parmi ses quatre (deux par face — jouer l'un
+ * jette les trois autres), et **quelle zone** — vert pour affirmer, rouge pour
+ * nier.
  *
  * Pour que ça reste jouable au pouce sur un téléphone, la zone est un **mode**
  * qu'on bascule une fois, pas une question posée à chaque carte : on choisit
@@ -105,13 +106,14 @@ export function ClueSelectionScreen({ view, onSubmit, onKick }: ClueSelectionScr
   }, [submitted, view.phaseEndsAt, serverNow, placed]);
 
   /**
-   * Tape sur une face.
+   * Tape sur un pictogramme de la main.
    *
-   * Trois cas, du plus courant au plus rare : la face est déjà posée → on la
-   * retire ; l'autre face de la même carte est posée → on retourne la carte en
-   * gardant sa zone ; sinon → on pose, si le boîtier n'est pas plein.
+   * Trois cas, du plus courant au plus rare : il est déjà posé → on le retire ;
+   * un autre pictogramme de la même carte est posé → on change de pictogramme en
+   * gardant la zone, comme on retournerait la carte dans son emplacement ;
+   * sinon → on pose, si le boîtier n'est pas plein.
    */
-  function tapFace(card: PictoCard, iconId: string) {
+  function tapIcon(card: PictoCard, iconId: string) {
     if (submitted || busy) return;
     setError(null);
 
@@ -288,8 +290,8 @@ export function ClueSelectionScreen({ view, onSubmit, onKick }: ClueSelectionScr
         </div>
 
         <p className="mb-3 text-sm font-semibold text-muted">
-          Chaque carte porte deux pictogrammes : tu n’en montres qu’un, et la carte
-          entière part à la défausse. Elle ne sera pas remplacée.
+          Chaque carte porte quatre pictogrammes, deux par face : tu n’en montres
+          qu’un, et la carte entière part à la défausse. Elle ne sera pas remplacée.
         </p>
 
         <ul className="flex flex-col gap-2">
@@ -299,7 +301,7 @@ export function ClueSelectionScreen({ view, onSubmit, onKick }: ClueSelectionScr
               card={card}
               placed={placed.find((picto) => picto.cardId === card.id) ?? null}
               full={placed.length >= MAX_PICTOS}
-              onTapFace={(iconId) => tapFace(card, iconId)}
+              onTapIcon={(iconId) => tapIcon(card, iconId)}
             />
           ))}
         </ul>
@@ -374,66 +376,87 @@ interface HandCardProps {
   placed: PlacedPicto | null;
   /** Boîtier plein : les cartes non posées deviennent inertes. */
   full: boolean;
-  onTapFace: (iconId: string) => void;
+  onTapIcon: (iconId: string) => void;
 }
 
 /**
- * Une carte de la main, ses deux faces côte à côte.
+ * Une carte de la main, ses deux faces côte à côte, deux pictogrammes chacune.
  *
- * Les montrer ensemble plutôt que d'imposer un bouton « retourner » rend le
- * dilemme visible : les deux images sont là, on n'en jouera qu'une, et l'autre
- * disparaîtra avec la carte.
+ * Les quatre sont visibles d'un coup plutôt que derrière un bouton « retourner » :
+ * le dilemme doit se voir — quatre idées sur la carte, une seule jouée, les
+ * trois autres parties avec elle. Une fois un pictogramme posé, les trois autres
+ * s'estompent : c'est ce que le boîtier cache.
  */
-function HandCard({ card, placed, full, onTapFace }: HandCardProps) {
-  const faces = [card.front, card.back];
+function HandCard({ card, placed, full, onTapIcon }: HandCardProps) {
+  const sides = [
+    { label: 'Recto', icons: card.front },
+    { label: 'Verso', icons: card.back },
+  ];
 
   return (
     <li
       className={[
-        'flex items-center gap-2 rounded-tile bg-white p-2 shadow-tile',
+        'flex items-stretch gap-2 rounded-tile bg-white p-2 shadow-tile',
         placed ? 'ring-2 ring-violet' : 'ring-1 ring-ink/5',
       ].join(' ')}
     >
-      {faces.map((iconId, index) => {
-        const icon = getIcon(iconId);
-        if (!icon) return null;
+      {sides.map((side, sideIndex) => (
+        <div
+          key={side.label}
+          role="group"
+          aria-label={side.label}
+          className={[
+            'flex flex-1 gap-1.5',
+            // Un filet entre les deux faces : ce sont deux côtés d'une même carte.
+            sideIndex > 0 ? 'border-l border-dashed border-ink/15 pl-2' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {side.icons.map((iconId, index) => {
+            const icon = getIcon(iconId);
+            if (!icon) return null;
 
-        const isPlaced = placed?.iconId === iconId;
-        const inert = full && !placed;
+            const isPlaced = placed?.iconId === iconId;
+            const hiddenByPlacement = placed !== null && !isPlaced;
+            const inert = full && !placed;
+            const where = side.label.toLowerCase();
 
-        return (
-          <button
-            key={`${card.id}-${iconId}-${index}`}
-            type="button"
-            onClick={() => onTapFace(iconId)}
-            aria-pressed={isPlaced}
-            aria-label={
-              isPlaced
-                ? `${icon.label}, posé, appuie pour retirer`
-                : `${icon.label}, appuie pour poser`
-            }
-            className={[
-              'flex-1 rounded-tile transition-transform duration-150 active:scale-95',
-              inert ? 'opacity-40' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            <IconTile
-              icon={icon}
-              size="sm"
-              className="w-full"
-              ring={
-                isPlaced
-                  ? placed.zone === 'green'
-                    ? 'ring-4 ring-mint'
-                    : 'ring-4 ring-pink'
-                  : 'ring-1 ring-ink/5'
-              }
-            />
-          </button>
-        );
-      })}
+            return (
+              <button
+                key={`${card.id}-${iconId}-${index}`}
+                type="button"
+                onClick={() => onTapIcon(iconId)}
+                aria-pressed={isPlaced}
+                aria-label={
+                  isPlaced
+                    ? `${icon.label}, ${where}, posé, appuie pour retirer`
+                    : `${icon.label}, ${where}, appuie pour poser`
+                }
+                className={[
+                  'flex-1 rounded-tile transition-transform duration-150 active:scale-95',
+                  inert ? 'opacity-40' : hiddenByPlacement ? 'opacity-50' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <IconTile
+                  icon={icon}
+                  size="sm"
+                  className="w-full"
+                  ring={
+                    isPlaced
+                      ? placed.zone === 'green'
+                        ? 'ring-4 ring-mint'
+                        : 'ring-4 ring-pink'
+                      : 'ring-1 ring-ink/5'
+                  }
+                />
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </li>
   );
 }

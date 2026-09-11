@@ -8,7 +8,7 @@ import {
 } from '../constants';
 import { ICONS, ICON_BY_ID, getIcon } from '../data/icons';
 import { IDENTITIES, IDENTITY_BY_ID, getIdentityPool } from '../data/identities';
-import { cardFaces, dealHand, dealPictoCards } from '../dealHand';
+import { ICONS_PER_CARD, cardIcons, dealHand, dealPictoCards } from '../dealHand';
 import {
   generateGameCode,
   generateUniqueGameCode,
@@ -228,16 +228,18 @@ describe('dealPictoCards', () => {
 
     expect(cards).toHaveLength(STARTING_HAND_CARDS);
     for (const card of cards) {
-      expect(card.front).not.toBe(card.back);
-      expect(cardFaces(card)).toEqual([card.front, card.back]);
+      expect(card.front).toHaveLength(2);
+      expect(card.back).toHaveLength(2);
+      expect(cardIcons(card)).toEqual([...card.front, ...card.back]);
+      expect(new Set(cardIcons(card)).size).toBe(ICONS_PER_CARD);
     }
   });
 
   it('n’utilise jamais deux fois le même pictogramme dans une main', () => {
     const cards = dealPictoCards({ cardCount: STARTING_HAND_CARDS }, seededRng(11));
-    const faces = cards.flatMap(cardFaces);
+    const faces = cards.flatMap(cardIcons);
 
-    expect(new Set(faces).size).toBe(STARTING_HAND_CARDS * 2);
+    expect(new Set(faces).size).toBe(STARTING_HAND_CARDS * ICONS_PER_CARD);
   });
 
   it('donne des identifiants uniques, préfixables par joueur', () => {
@@ -274,6 +276,8 @@ describe('le catalogue suffit aux règles', () => {
   });
 
   it('offre assez de pictogrammes pour huit mains complètes', () => {
-    expect(ICONS.length).toBeGreaterThanOrEqual(MAX_PLAYERS * STARTING_HAND_CARDS * 2);
+    expect(ICONS.length).toBeGreaterThanOrEqual(
+      MAX_PLAYERS * STARTING_HAND_CARDS * ICONS_PER_CARD,
+    );
   });
 });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_EVENTS, type PlayerView } from '@identite-secrete/shared';
+import { CLIENT_EVENTS, defaultRng, type PlayerView } from '@identite-secrete/shared';
 import { GameHost } from '../host';
 import { InMemoryStore } from '../store/InMemoryStore';
-import { deserializeGame, serializeGame } from '../persistence';
+import { PERSISTENCE_VERSION, deserializeGame, serializeGame } from '../persistence';
+import { createGame, createPlayer } from '../game/factory';
 import { TestClient, TestHost, startTestServer, wait } from './helpers';
 
 /**
@@ -110,11 +111,10 @@ describe('aller-retour de sérialisation', () => {
     expect(deserializeGame(null)).toBeNull();
     expect(deserializeGame('texte')).toBeNull();
     expect(deserializeGame({})).toBeNull();
-    expect(deserializeGame({ version: 2, code: 'ABCDE' })).toBeNull();
-    expect(deserializeGame({ version: 1, code: 'ABCDE', hostId: 'x' })).toBeNull();
+    expect(deserializeGame({ version: PERSISTENCE_VERSION, code: 'ABCDE' })).toBeNull();
     expect(
       deserializeGame({
-        version: 1,
+        version: PERSISTENCE_VERSION,
         code: 'ABCDE',
         hostId: 'x',
         phase: 'PAS_UNE_PHASE',
@@ -122,6 +122,23 @@ describe('aller-retour de sérialisation', () => {
         settings: {},
       }),
     ).toBeNull();
+  });
+
+  it('refuse une sauvegarde d’une version antérieure, sans tenter de la convertir', () => {
+    // Une partie à moitié convertie est bien pire qu'une partie perdue : l'hôte
+    // repart du salon, ce qui est un état que tout le monde comprend.
+    const host = createPlayer('Hôte', 'c1', Date.now());
+    const saved = serializeGame(
+      createGame({ host, usedCodes: new Set(), rng: defaultRng, now: Date.now() }),
+    );
+
+    // La version courante revient intacte…
+    expect(deserializeGame(saved)).not.toBeNull();
+
+    // …toutes les précédentes sont refusées en bloc.
+    for (let version = 1; version < PERSISTENCE_VERSION; version++) {
+      expect(deserializeGame({ ...saved, version }), 'version ' + version).toBeNull();
+    }
   });
 });
 

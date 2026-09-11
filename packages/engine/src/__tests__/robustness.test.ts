@@ -6,7 +6,14 @@ import {
   type SessionPayload,
 } from '@identite-secrete/shared';
 import { RateLimiter } from '../rateLimit';
-import { TEST_GRACE_MS, TestClient, startTestServer, wait, type TestHost } from './helpers';
+import {
+  TEST_GRACE_MS,
+  TestClient,
+  startTestServer,
+  wait,
+  waitForRoundEnd,
+  type TestHost,
+} from './helpers';
 
 /**
  * Cas limites du §9 et robustesse générale (Lot 5).
@@ -16,7 +23,7 @@ import { TEST_GRACE_MS, TestClient, startTestServer, wait, type TestHost } from 
 function placedOf(client: TestClient, count = 2) {
   return client.lastView.yourHand!.slice(0, count).map((card) => ({
     cardId: card.id,
-    iconId: card.front,
+    iconId: card.front[0],
     zone: 'green' as const,
   }));
 }
@@ -225,7 +232,7 @@ describe('joueur qui quitte en cours de manche', () => {
 
     await zoe.emit(CLIENT_EVENTS.leave, {});
     await host.waitForView((v) => v.players.length === 3, 'Zoé partie');
-    await host.waitForView((v) => v.phase === 'SCOREBOARD', 'classement', 15_000);
+    await waitForRoundEnd(host, 1);
     await host.emit(CLIENT_EVENTS.nextRound, {});
     await host.waitForView((v) => v.roundNumber === 2, 'manche 2');
 

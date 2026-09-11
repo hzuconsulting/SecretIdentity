@@ -12,6 +12,8 @@ export class InMemoryStore implements GameStore {
   private readonly games = new Map<string, Game>();
   /** sessionToken → { code, playerId } — index de reconnexion. */
   private readonly sessions = new Map<string, { code: string; playerId: PlayerId }>();
+  /** empreinte → { code, playerId } — index de reconnexion après reprise. */
+  private readonly commitments = new Map<string, { code: string; playerId: PlayerId }>();
 
   async create(game: Game): Promise<void> {
     this.games.set(game.code, game);
@@ -34,6 +36,7 @@ export class InMemoryStore implements GameStore {
     if (!game) return;
     for (const player of game.players.values()) {
       this.sessions.delete(player.sessionToken);
+      if (player.sessionTokenHash) this.commitments.delete(player.sessionTokenHash);
     }
     this.games.delete(code);
   }
@@ -49,12 +52,25 @@ export class InMemoryStore implements GameStore {
   async findBySessionToken(
     sessionToken: string,
   ): Promise<{ game: Game; playerId: PlayerId } | undefined> {
-    const entry = this.sessions.get(sessionToken);
+    return this.lookup(this.sessions, sessionToken);
+  }
+
+  async findBySessionCommitment(
+    sessionHash: string,
+  ): Promise<{ game: Game; playerId: PlayerId } | undefined> {
+    return this.lookup(this.commitments, sessionHash);
+  }
+
+  private lookup(
+    index: Map<string, { code: string; playerId: PlayerId }>,
+    key: string,
+  ): { game: Game; playerId: PlayerId } | undefined {
+    const entry = index.get(key);
     if (!entry) return undefined;
 
     const game = this.games.get(entry.code);
     if (!game || !game.players.has(entry.playerId)) {
-      this.sessions.delete(sessionToken);
+      index.delete(key);
       return undefined;
     }
 
@@ -80,7 +96,20 @@ export class InMemoryStore implements GameStore {
 
   private indexSessions(game: Game): void {
     for (const player of game.players.values()) {
-      this.sessions.set(player.sessionToken, { code: game.code, playerId: player.id });
+      const entry = { code: game.code, playerId: player.id };
+      this.sessions.set(player.sessionToken, entry);
+
+      // L'empreinte disparaît dès que le joueur a présenté son vrai jeton : on
+      // retire alors l'entrée, sinon elle resterait une seconde porte ouverte
+      // sur la même session pour toute la durée de la partie.
+      if (player.sessionTokenHash) this.commitments.set(player.sessionTokenHash, entry);
+      else this.removeCommitmentOf(player.id, game.code);
+    }
+  }
+
+  private removeCommitmentOf(playerId: PlayerId, code: string): void {
+    for (const [hash, entry] of this.commitments) {
+      if (entry.playerId === playerId && entry.code === code) this.commitments.delete(hash);
     }
   }
 }

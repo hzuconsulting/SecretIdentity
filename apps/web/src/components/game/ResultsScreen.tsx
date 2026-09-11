@@ -5,30 +5,43 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   REVEAL_STEP_MS,
   getIdentity,
+  type IdentityId,
   type PlayerView,
   type RoundReveal,
+  type Slot,
 } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
+import { Button } from '@/components/ui/Button';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { PictoCase } from './PictoCase';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
 
+interface ResultsScreenProps {
+  view: PlayerView;
+  onNextRound: () => Promise<unknown>;
+}
+
 /**
- * Révélation séquentielle.
+ * Fin de manche : tout est révélé, et on prend son temps.
  *
- * Un boîtier toutes les 1,5 s, dans l'ordre des numéros — c'est le moment de la
- * manche où tout le monde regarde le même écran, et tout révéler d'un coup
- * gâcherait le seul suspense du jeu.
+ * **Pas de minuteur.** C'est le moment où la table discute — « tu m'as pris pour
+ * Hercule ? », « mais le rouge voulait dire *pas* un enfant ! » — et un décompte
+ * coupait la conversation au milieu. L'hôte lance la manche suivante quand tout
+ * le monde a vu ce qu'il voulait voir.
  *
- * Avec `prefers-reduced-motion`, tout s'affiche immédiatement : l'information
- * est la même, seule la mise en scène disparaît.
+ * La révélation reste séquentielle, un boîtier toutes les 1,5 s : c'est la seule
+ * mise en scène du jeu, et tout montrer d'un coup gâcherait le suspense. Mais
+ * ce n'est qu'une animation — rien n'avance tout seul après. Avec
+ * `prefers-reduced-motion`, tout s'affiche immédiatement.
  */
-export function ResultsScreen({ view }: { view: PlayerView }) {
+export function ResultsScreen({ view, onNextRound }: ResultsScreenProps) {
   const reduceMotion = useReducedMotion();
   const { play } = useSound();
   const reveals = view.reveals ?? [];
+  const board = view.board ?? [];
 
   const [shown, setShown] = useState(() => (reduceMotion ? reveals.length : 0));
+  const [advancing, setAdvancing] = useState(false);
 
   useEffect(() => {
     if (reduceMotion) {
@@ -63,8 +76,21 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
   const visible = reveals.slice(0, shown);
   const allShown = shown >= reveals.length;
 
+  // Les numéros que quelqu'un portait. Tout le reste du plateau était un leurre :
+  // un vote tombé dessus mérite d'être signalé comme tel, sinon on croit à une
+  // erreur d'affichage.
+  const ownedSlots = new Set(reveals.map((reveal) => reveal.slot));
+  const isLastRound = view.roundNumber >= view.totalRounds;
+
+  async function advance() {
+    if (advancing) return;
+    setAdvancing(true);
+    await onNextRound();
+    setAdvancing(false);
+  }
+
   return (
-    <PhaseShell view={view} title="Révélation">
+    <PhaseShell view={view} title="Révélation" hideTimer>
       <PhaseAnnouncement
         label={
           allShown
@@ -76,15 +102,30 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
       <ul className="flex flex-col gap-3">
         <AnimatePresence initial={false}>
           {visible.map((reveal) => (
-            <RevealCard key={reveal.playerId} reveal={reveal} youId={view.you.id} />
+            <RevealCard
+              key={reveal.playerId}
+              reveal={reveal}
+              youId={view.you.id}
+              board={board}
+              ownedSlots={ownedSlots}
+            />
           ))}
         </AnimatePresence>
       </ul>
 
       {!allShown ? (
-        <p className="text-center text-sm font-semibold text-muted">
-          {shown} / {reveals.length}
-        </p>
+        <div className="flex flex-col items-center gap-1">
+          <p className="text-sm font-semibold text-muted">
+            {shown} / {reveals.length}
+          </p>
+          <button
+            type="button"
+            onClick={() => setShown(reveals.length)}
+            className="min-h-[44px] font-display text-xs font-extrabold uppercase tracking-widest text-violet"
+          >
+            Tout révéler
+          </button>
+        </div>
       ) : null}
 
       {allShown && view.roundScores ? (
@@ -92,9 +133,15 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }}
-          aria-label="Points de la manche"
+          aria-labelledby="points-titre"
           className="rounded-card bg-white p-4 shadow-card"
         >
+          <h2
+            id="points-titre"
+            className="mb-3 font-display text-xs font-extrabold uppercase tracking-widest text-muted"
+          >
+            Points de la manche
+          </h2>
           <ul className="flex flex-col gap-3">
             {view.roundScores.map((line) => (
               <li key={line.playerId}>
@@ -107,18 +154,53 @@ export function ResultsScreen({ view }: { view: PlayerView }) {
                   </span>
                 </div>
                 <p className="text-sm text-muted">
-                  Faire deviner&nbsp;: +{line.given} · Bonnes réponses&nbsp;: +{line.guessed}
+                  Faire deviner&nbsp;: +{line.given} · Bonnes réponses&nbsp;: +{line.guessed} ·{' '}
+                  <strong className="text-ink">{line.cumulative} pts au total</strong>
                 </p>
               </li>
             ))}
           </ul>
         </motion.section>
       ) : null}
+
+      {allShown ? (
+        <div className="mt-auto flex flex-col gap-2 pt-2">
+          {view.you.isHost ? (
+            <>
+              <Button onClick={() => void advance()} disabled={advancing || view.paused === true}>
+                {advancing
+                  ? 'Un instant…'
+                  : isLastRound
+                    ? 'Voir le classement final'
+                    : 'Manche suivante'}
+              </Button>
+              <p className="text-center text-sm font-semibold text-muted">
+                Prenez votre temps : rien n’avance tant que tu n’as pas appuyé.
+              </p>
+            </>
+          ) : (
+            <p className="text-center text-sm font-semibold text-muted">
+              {isLastRound
+                ? 'L’hôte affichera le classement final quand tout le monde aura vu.'
+                : 'L’hôte lancera la manche suivante quand tout le monde aura vu.'}
+            </p>
+          )}
+        </div>
+      ) : null}
     </PhaseShell>
   );
 }
 
-function RevealCard({ reveal, youId }: { reveal: RoundReveal; youId: string }) {
+// ─────────────────────────────────────────────────────────────
+
+interface RevealCardProps {
+  reveal: RoundReveal;
+  youId: string;
+  board: IdentityId[];
+  ownedSlots: ReadonlySet<Slot>;
+}
+
+function RevealCard({ reveal, youId, board, ownedSlots }: RevealCardProps) {
   const found = reveal.guessedByPlayerIds.length;
   const youFound = reveal.guessedByPlayerIds.includes(youId);
   const isYou = reveal.playerId === youId;
@@ -147,6 +229,46 @@ function RevealCard({ reveal, youId }: { reveal: RoundReveal; youId: string }) {
       <div className="mt-3">
         <PictoCase placed={reveal.placed} />
       </div>
+
+      {/* ── Le dépouillement des cartes Vote ─────────────────── */}
+      {reveal.votes.length > 0 ? (
+        <div className="mt-3 border-t border-ink/5 pt-3">
+          <p className="mb-1.5 font-display text-[0.65rem] font-extrabold uppercase tracking-widest text-muted">
+            Ce que les autres ont voté
+          </p>
+          <ul className="flex flex-col gap-1">
+            {reveal.votes.map((vote) => (
+              <li
+                key={vote.playerId}
+                className="flex items-baseline justify-between gap-2 text-sm"
+              >
+                <span className="min-w-0 truncate font-semibold">
+                  {vote.playerId === youId ? 'Toi' : vote.nickname}
+                </span>
+                <span
+                  className={[
+                    'shrink-0 text-right font-semibold',
+                    vote.correct ? 'text-mint' : 'text-muted',
+                  ].join(' ')}
+                >
+                  {vote.slot === null ? (
+                    'sans réponse'
+                  ) : (
+                    <>
+                      <span aria-hidden="true">{vote.correct ? '✓ ' : '✗ '}</span>
+                      <span className="sr-only">{vote.correct ? 'Juste : ' : 'Faux : '}</span>
+                      n°{vote.slot} {getIdentity(board[vote.slot - 1] ?? '')?.name ?? ''}
+                      {!vote.correct && !ownedSlots.has(vote.slot) ? (
+                        <span className="text-xs"> (leurre)</span>
+                      ) : null}
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <p className="font-display text-sm font-extrabold text-violet-dark">

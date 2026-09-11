@@ -9,7 +9,13 @@ import {
   type PhaseChangedPayload,
   type PlayerView,
 } from '@identite-secrete/shared';
-import { TestClient, containsValue, startTestServer, type TestHost } from './helpers';
+import {
+  TestClient,
+  containsValue,
+  startTestServer,
+  waitForRoundEnd,
+  type TestHost,
+} from './helpers';
 
 /**
  * Tests de la machine à états.
@@ -185,7 +191,7 @@ describe('attribution de la manche', () => {
       firstIdentities.add(view.yourIdentityId!);
     }
 
-    await runToScoreboard(host);
+    await runToRoundEnd(host);
     await host.emit(CLIENT_EVENTS.nextRound, {});
 
     const secondIdentities = new Set<string>();
@@ -263,18 +269,27 @@ describe('transitions et échéances', () => {
     expect(view.phaseEndsAt).toBeNull();
   });
 
-  it('permet à l’hôte d’enchaîner depuis le classement', async () => {
+  it('s’arrête sur la révélation, sans échéance, jusqu’à ce que l’hôte enchaîne', async () => {
     const { players } = await startedGame();
     const host = players[0]!;
 
-    await runToScoreboard(host);
+    await runToRoundEnd(host);
+    expect(host.lastView.phaseEndsAt).toBeNull();
+
+    // Bien plus longtemps que l'ancienne échéance mise à l'échelle : rien ne bouge.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(host.lastView.phase).toBe('RESULTS');
+    expect(host.lastView.roundNumber).toBe(1);
+
     const response = await host.emit(CLIENT_EVENTS.nextRound, {});
     expect(response.ok).toBe(true);
 
-    await host.waitForView((v) => v.roundNumber === 2, 'manche 2');
+    // On passe directement à la manche suivante, sans classement intermédiaire.
+    const next = await host.waitForView((v) => v.roundNumber === 2, 'manche 2');
+    expect(next.phase).toBe('IDENTITY_REVEAL');
   });
 
-  it('refuse `round:next` hors du classement et par un non-hôte', async () => {
+  it('refuse `round:next` avant la fin de la manche et par un non-hôte', async () => {
     const { players } = await startedGame();
     const host = players[0]!;
     const guest = players[1]!;
@@ -283,7 +298,7 @@ describe('transitions et échéances', () => {
     expect(tooEarly.ok).toBe(false);
     if (!tooEarly.ok) expect(tooEarly.error.code).toBe('WRONG_PHASE');
 
-    await runToScoreboard(host);
+    await runToRoundEnd(host);
 
     const notHost = await guest.emit(CLIENT_EVENTS.nextRound, {});
     expect(notHost.ok).toBe(false);
@@ -296,7 +311,7 @@ describe('transitions et échéances', () => {
 
     for (let round = 1; round <= TOTAL_ROUNDS; round++) {
       await host.waitForView((v) => v.roundNumber === round, `manche ${round}`, 10_000);
-      await runToScoreboard(host);
+      await runToRoundEnd(host);
       await host.emit(CLIENT_EVENTS.nextRound, {});
     }
 
@@ -343,7 +358,7 @@ describe('confidentialité en cours de manche', () => {
     const { players } = await startedGame();
     const host = players[0]!;
 
-    await runToScoreboard(host);
+    await runToRoundEnd(host);
 
     for (const client of players) {
       for (const view of client.received) {
@@ -461,12 +476,12 @@ async function startedGameLobby(): Promise<{ code: string; players: TestClient[]
 }
 
 /**
- * Attend le classement.
+ * Attend la fin de la manche en cours, révélation affichée.
  *
- * Personne ne soumet — `clues:submit` arrive au Lot 3 — donc la manche se
- * déroule uniquement sur ses échéances serveur. C'est précisément ce qu'on
- * veut vérifier ici.
+ * Personne ne soumet, donc les phases de jeu se concluent uniquement sur leurs
+ * échéances. La révélation, elle, n'en a pas : la partie s'y arrête et attend
+ * l'hôte. C'est précisément ce qu'on veut vérifier ici.
  */
-async function runToScoreboard(host: TestClient): Promise<void> {
-  await host.waitForView((v: PlayerView) => v.phase === 'SCOREBOARD', 'classement', 15_000);
+async function runToRoundEnd(host: TestClient): Promise<void> {
+  await waitForRoundEnd(host, host.lastView.roundNumber);
 }

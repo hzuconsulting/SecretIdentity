@@ -9,6 +9,7 @@ import {
   ok,
   pingSchema,
   rejoinGameSchema,
+  type Game,
   type PlayerId,
   type PongPayload,
   type SessionPayload,
@@ -27,7 +28,8 @@ import {
 } from '../game/lobby';
 import { timerKeys } from '../timers';
 import { broadcastState, sendStateTo, toastAll } from '../emit';
-import type { EventHandler, HandlerContext } from './context';
+import { sha256Hex } from '../random';
+import { finalizeGame, type EventHandler, type HandlerContext, type HandlerDeps } from './context';
 
 /**
  * Cycle de vie d'un joueur : entrer dans une partie, en sortir, y revenir.
@@ -139,7 +141,7 @@ const rejoinGame: EventHandler = (ctx, payload) =>
     const parsed = rejoinGameSchema.safeParse(payload);
     if (!parsed.success) return fail('INVALID_PAYLOAD');
 
-    const found = await store.findBySessionToken(parsed.data.sessionToken);
+    const found = await resolveSession(store, parsed.data.sessionToken);
     if (!found) return fail('SESSION_NOT_FOUND');
 
     const { game, playerId } = found;
@@ -167,6 +169,42 @@ const rejoinGame: EventHandler = (ctx, payload) =>
       code: game.code,
     });
   });
+
+/**
+ * Retrouve la session d'un joueur, par jeton ou par empreinte.
+ *
+ * Le chemin direct est celui de toujours. Le second n'existe qu'après une
+ * reprise d'hébergement : le nouvel hôte n'a jamais reçu les jetons — les
+ * diffuser aurait permis à n'importe qui d'usurper n'importe qui, donc de lire
+ * son numéro secret — seulement leurs empreintes SHA-256.
+ *
+ * Le joueur présente donc son jeton, qu'il a toujours dans son propre stockage,
+ * et c'est l'empreinte qui est comparée. Dès que la correspondance est établie,
+ * **le vrai jeton remplace le provisoire** et l'empreinte est effacée : la
+ * partie retrouve son fonctionnement normal, et l'engagement ne traîne pas
+ * comme une seconde porte d'entrée.
+ */
+async function resolveSession(
+  store: HandlerDeps['store'],
+  sessionToken: string,
+): Promise<{ game: Game; playerId: PlayerId } | null> {
+  const direct = await store.findBySessionToken(sessionToken);
+  if (direct) return direct;
+
+  const hash = await sha256Hex(sessionToken);
+  const byCommitment = await store.findBySessionCommitment(hash);
+  if (!byCommitment) return null;
+
+  const player = byCommitment.game.players.get(byCommitment.playerId);
+  if (!player) return null;
+
+  player.sessionToken = sessionToken;
+  delete player.sessionTokenHash;
+  await store.save(byCommitment.game);
+
+  logger.info(`${player.nickname} reconnu·e par empreinte dans ${byCommitment.game.code}`);
+  return byCommitment;
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Départ volontaire
@@ -279,7 +317,7 @@ const kickPlayer: EventHandler = (ctx, payload) =>
  * client : elle ne renvoie pas d'acquittement et ne consomme pas de débit.
  */
 export async function handleDisconnect(ctx: HandlerContext, reason: string): Promise<void> {
-  const { store, timers, emitter, engine } = ctx.deps;
+  const { store, emitter, engine } = ctx.deps;
 
   const context = await ctx.resolveContext();
   if (!context) return;
@@ -309,16 +347,43 @@ export async function handleDisconnect(ctx: HandlerContext, reason: string): Pro
   logger.debug(`${player?.nickname ?? playerId} déconnecté de ${game.code} (${reason})`);
   broadcastState(emitter, game, now);
 
-  // Période de grâce : la partie continue sans lui, il peut revenir.
-  timers.schedule(timerKeys.drop(game.code, playerId), ctx.deps.disconnectGraceMs, () => {
-    void dropAfterGrace(ctx, game.code, playerId);
-  });
+  armAbsenceTimers(ctx.deps, game, playerId);
+}
+
+/**
+ * Arme les deux échéances qui suivent l'absence d'un joueur.
+ *
+ * Sans `playerId`, arme celles de **tous** les absents : c'est le cas après une
+ * reprise d'hébergement, où tout le monde revient déconnecté et où aucun
+ * `handleDisconnect` n'a eu lieu.
+ *
+ * Les oublier n'est pas un détail. Le transfert d'hôte de salon, en
+ * particulier, est un **verrou mortel** : `game.hostId` désignerait toujours le
+ * joueur disparu, et comme `startGame`, `nextRound`, `replay`,
+ * `updateSettings` et `kickPlayer` exigent tous d'être hôte, plus personne ne
+ * pourrait faire avancer la partie.
+ */
+export function armAbsenceTimers(deps: HandlerDeps, game: Game, playerId?: PlayerId): void {
+  const { timers } = deps;
+
+  const absentees =
+    playerId !== undefined
+      ? [playerId]
+      : [...game.players.values()].filter((player) => !player.connected).map((p) => p.id);
+
+  for (const id of absentees) {
+    // Période de grâce : la partie continue sans lui, il peut revenir.
+    timers.schedule(timerKeys.drop(game.code, id), deps.disconnectGraceMs, () => {
+      void dropAfterGrace(deps, game.code, id);
+    });
+  }
 
   // L'hôte garde son rôle un moment : une coupure de tunnel de métro ne doit
   // pas lui coûter le contrôle du salon.
-  if (isHost(game, playerId)) {
-    timers.schedule(timerKeys.hostTransfer(game.code), ctx.deps.hostTransferDelayMs, () => {
-      void transferHostAfterDelay(ctx, game.code);
+  const host = game.players.get(game.hostId);
+  if (host && !host.connected) {
+    timers.schedule(timerKeys.hostTransfer(game.code), deps.hostTransferDelayMs, () => {
+      void transferHostAfterDelay(deps, game.code);
     });
   }
 }
@@ -328,11 +393,11 @@ export async function handleDisconnect(ctx: HandlerContext, reason: string): Pro
 // ─────────────────────────────────────────────────────────────
 
 async function dropAfterGrace(
-  ctx: HandlerContext,
+  deps: HandlerDeps,
   code: string,
   playerId: PlayerId,
 ): Promise<void> {
-  const { store, timers, emitter, engine } = ctx.deps;
+  const { store, timers, emitter, engine } = deps;
 
   const game = await store.get(code);
   if (!game) return;
@@ -356,12 +421,12 @@ async function dropAfterGrace(
   toastAll(emitter, game, `${player.nickname} a quitté la partie.`, 'info');
   logger.info(`${player.nickname} retiré de ${code} (absence prolongée)`);
 
-  await ctx.finalize(game, now);
+  await finalizeGame(deps, game, now);
   await engine.pauseIfNeeded(game);
 }
 
-async function transferHostAfterDelay(ctx: HandlerContext, code: string): Promise<void> {
-  const { store, emitter } = ctx.deps;
+async function transferHostAfterDelay(deps: HandlerDeps, code: string): Promise<void> {
+  const { store, emitter } = deps;
 
   const game = await store.get(code);
   if (!game) return;

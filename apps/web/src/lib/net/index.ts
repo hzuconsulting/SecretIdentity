@@ -5,9 +5,12 @@ import {
   type PongPayload,
   type SessionPayload,
 } from '@identite-secrete/shared';
+import { loadSession } from '@/lib/session';
 import { GuestNode } from './guestNode';
 import { HostNode } from './hostNode';
 import { hasHostedGame } from './hostStorage';
+import { abandonHosting, watchForMigration, type MigrationWatch } from './migration';
+import { clearRelay } from './relayStorage';
 import type { GameNode } from './node';
 
 export type { GameNode, NodeStatus } from './node';
@@ -33,6 +36,56 @@ let current: GameNode | null = null;
  * doit pas recevoir le nœud de celle-ci.
  */
 let opening: { code: string; promise: Promise<GameNode> } | null = null;
+
+/**
+ * La surveillance de reprise attachée au nœud courant.
+ *
+ * Elle ne vit que pour un nœud invité : un hôte n'a personne à remplacer.
+ */
+let watch: MigrationWatch | null = null;
+
+/** Prévenus quand le nœud est remplacé sous les pieds de l'interface. */
+const nodeListeners = new Set<(node: GameNode) => void>();
+
+/**
+ * S'abonne au remplacement du nœud.
+ *
+ * Une reprise d'hébergement échange le nœud courant : l'onglet était invité, il
+ * devient hôte. Les écrans n'ont rien à changer — les deux nœuds exposent la
+ * même interface — mais le hook qui tient les abonnements doit rebrancher les
+ * siens sur le nouveau.
+ */
+export function onNodeReplaced(listener: (node: GameNode) => void): () => void {
+  nodeListeners.add(listener);
+  return () => nodeListeners.delete(listener);
+}
+
+function replaceNode(node: GameNode): void {
+  current = node;
+  stopWatching();
+  for (const listener of [...nodeListeners]) listener(node);
+}
+
+function stopWatching(): void {
+  watch?.stop();
+  watch = null;
+}
+
+/**
+ * Arme la reprise sur un nœud invité.
+ *
+ * On ne surveille que si cet appareil a une session sur cette partie : sans
+ * elle, on n'en a jamais fait partie, et reprendre l'hébergement d'une partie
+ * qu'on ne joue pas n'aurait aucun sens.
+ */
+function armMigration(node: GameNode): void {
+  stopWatching();
+  if (node.hosting || !loadSession(node.code)) return;
+
+  watch = watchForMigration(node, {
+    onMigrated: (adopted) => replaceNode(adopted),
+  });
+}
 
 /**
  * Crée une partie hébergée par cet appareil.
@@ -77,10 +130,24 @@ export function getNode(code: string): Promise<GameNode> {
 async function open(code: string): Promise<GameNode> {
   closeCurrent();
 
-  const node = hasHostedGame(code) ? await reopenAsHost(code) : await GuestNode.connect(code);
+  const node = hasHostedGame(code) ? await reopenAsHost(code) : await joinAsGuest(code);
 
   current = node;
+  armMigration(node);
   return node;
+}
+
+/**
+ * Se connecte comme invité, en insistant si on a déjà joué cette partie.
+ *
+ * La session stockée est ce qui distingue les deux situations : la posséder
+ * veut dire qu'on a été admis dans cette partie, donc qu'elle a existé, donc
+ * qu'un hôte absent est probablement en train de revenir. Sans elle, on est un
+ * inconnu qui vient de taper un code, et lui faire patienter trente secondes
+ * devant un code erroné serait une faute.
+ */
+function joinAsGuest(code: string): Promise<GameNode> {
+  return GuestNode.connect(code, { persistent: loadSession(code) !== null });
 }
 
 /**
@@ -97,10 +164,16 @@ async function reopenAsHost(code: string): Promise<GameNode> {
     const restored = await HostNode.restore(code);
     if (restored) return restored;
   } catch {
-    // On tente la voie invitée ci-dessous.
+    // L'identifiant n'a pas pu être repris malgré les tentatives : quelqu'un
+    // d'autre le tient, et le plus probable est qu'un joueur a repris la partie
+    // pendant notre absence. On **abandonne définitivement** l'hébergement sur
+    // cet appareil — garder la sauvegarde nous laisserait ressusciter plus tard
+    // un état périmé, avec les vraies mains et les vrais numéros, et la partie
+    // remonterait visiblement dans le temps.
+    abandonHosting(code);
   }
 
-  return GuestNode.connect(code);
+  return joinAsGuest(code);
 }
 
 /** Le nœud courant, sans rien ouvrir. `null` avant la première connexion. */
@@ -121,6 +194,8 @@ export function isHostingLocally(code: string): boolean {
  * que de la perdre.
  */
 export function closeCurrent(): void {
+  stopWatching();
+  if (current) clearRelay(current.code);
   current?.close();
   current = null;
 }

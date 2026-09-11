@@ -14,7 +14,7 @@ import {
   type Slot,
   type ToastPayload,
 } from '@identite-secrete/shared';
-import { closeCurrent, getNode, type GameNode, type NodeStatus } from '@/lib/net';
+import { closeCurrent, getNode, onNodeReplaced, type GameNode, type NodeStatus } from '@/lib/net';
 import { clearSession, loadSession, saveSession } from '@/lib/session';
 
 /**
@@ -74,6 +74,16 @@ export function useGameConnection(code: string): GameConnection {
   // Évite de relancer une reprise de session pendant qu'une autre est en cours.
   const rejoining = useRef(false);
 
+  /**
+   * La génération d'hébergement la plus avancée qu'on ait vue.
+   *
+   * Sert à écarter les vues d'un hôte périmé. Le cas est rare mais silencieux :
+   * si le courtier laisse deux nœuds réserver le même identifiant — partition
+   * réseau, ancien hôte qui revient — la partie se scinderait en deux sans le
+   * moindre symptôme, chacun voyant un état cohérent mais différent.
+   */
+  const epoch = useRef(-1);
+
   const pushToast = useCallback((payload: ToastPayload) => {
     const toast: Toast = { ...payload, id: Date.now() + Math.random() };
     setToasts((current) => [...current, toast]);
@@ -88,6 +98,19 @@ export function useGameConnection(code: string): GameConnection {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Une reprise d'hébergement échange le nœud : cet onglet était invité, il
+    // devient hôte. Les écrans n'ont rien à savoir — les deux nœuds exposent la
+    // même interface — mais les abonnements doivent suivre.
+    const detach = onNodeReplaced((replacement) => {
+      if (cancelled) return;
+      epoch.current = -1;
+      setNode(replacement);
+      pushToast({
+        message: 'L’hôte a quitté : tu héberges la partie maintenant.',
+        tone: 'warning',
+      });
+    });
 
     getNode(code)
       .then((opened) => {
@@ -113,8 +136,9 @@ export function useGameConnection(code: string): GameConnection {
     // Il ne se ferme que sur un départ explicite.
     return () => {
       cancelled = true;
+      detach();
     };
-  }, [code]);
+  }, [code, pushToast]);
 
   /** Tente de reprendre la session stockée pour ce code. */
   const restore = useCallback(
@@ -163,6 +187,11 @@ export function useGameConnection(code: string): GameConnection {
     if (!node) return;
 
     const handleState = (incoming: PlayerView) => {
+      // Vue d'un hôte que la partie a dépassé : l'accepter ferait remonter le
+      // jeu dans le temps, avec des scores et une manche périmés.
+      if (incoming.epoch < epoch.current) return;
+
+      epoch.current = incoming.epoch;
       setView(incoming);
       setStatus('connected');
     };

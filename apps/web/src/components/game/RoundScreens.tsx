@@ -68,11 +68,12 @@ export function ScoreboardScreen({ view, onNextRound }: ScoreboardScreenProps) {
           onClick={() => void onNextRound()}
           className="mt-auto min-h-[56px] w-full rounded-tile bg-violet px-6 font-display text-lg font-extrabold uppercase tracking-wide text-white shadow-tile active:translate-y-1 active:shadow-tile-active"
         >
-          Manche suivante
+          {view.roundNumber >= view.totalRounds ? 'Voir le classement final' : 'Manche suivante'}
         </button>
       ) : (
+        // Plus de démarrage automatique : c'est l'hôte qui enchaîne.
         <p className="mt-auto text-center text-sm font-semibold text-muted">
-          La manche suivante démarre toute seule dans quelques secondes.
+          L’hôte lancera la manche suivante quand tout le monde sera prêt.
         </p>
       )}
     </PhaseShell>
@@ -139,12 +140,12 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
           {stats.bestDetective ? (
             <StatLine
               label="Meilleur détective"
-              value={`${stats.bestDetective.nickname} · ${stats.bestDetective.correctGuesses} identités trouvées`}
+              value={`${stats.bestDetective.nickname} · ${stats.bestDetective.correctGuesses} personnage${stats.bestDetective.correctGuesses > 1 ? 's' : ''} trouvé${stats.bestDetective.correctGuesses > 1 ? 's' : ''}`}
             />
           ) : null}
           {stats.bestCluegiver ? (
             <StatLine
-              label="Meilleur créateur d’indices"
+              label="Meilleur créateur de pictos"
               value={`${stats.bestCluegiver.nickname} · ${Math.round(stats.bestCluegiver.successRate * 100)} % de réussite`}
             />
           ) : null}
@@ -190,7 +191,7 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
 
 function ScoreTable({ lines }: { lines: RoundScoreLine[] }) {
   return (
-    <section aria-label="Points de la manche" className="rounded-card bg-white p-4 shadow-card">
+    <section aria-label="Détail de la partie" className="rounded-card bg-white p-4 shadow-card">
       <ul className="flex flex-col gap-2">
         {lines.map((line) => (
           <li key={line.playerId} className="text-sm">

@@ -11,7 +11,7 @@ export {
   type HandlerContext,
   type HandlerDeps,
 } from './context';
-export { handleDisconnect } from './session';
+export { armAbsenceTimers, handleDisconnect } from './session';
 
 /**
  * Table complète des événements acceptés.

@@ -40,6 +40,8 @@ export const SERVER_EVENTS = {
   toast: 'game:toast',
   /** Envoyé au seul joueur exclu, juste avant son retrait. */
   kicked: 'game:kicked',
+  /** L’instantané qui permet à un invité de reprendre la partie (D-73). */
+  relaySnapshot: 'host:relay',
 } as const;
 
 // ─────────────────────────────────────────────────────────────

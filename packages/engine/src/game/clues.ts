@@ -1,6 +1,7 @@
 import {
   MAX_PICTOS,
   MIN_PICTOS,
+  cardIcons,
   type GameErrorCode,
   type PictoCard,
   type PlacedPicto,
@@ -15,8 +16,8 @@ import {
  *  - la carte lui appartient encore — celles des manches passées ont été
  *    défaussées définitivement ;
  *  - il ne joue pas deux fois la même carte ;
- *  - le pictogramme montré est bien l'une des deux faces de cette carte, parce
- *    qu'une carte ne peut en montrer qu'une.
+ *  - le pictogramme montré est bien l'un des quatre de cette carte — deux par
+ *    face — parce qu'une carte n'en montre jamais qu'un.
  *
  * Fonction pure : c'est l'anti-triche du §6, et elle doit être testable sans
  * réseau ni partie en mémoire.
@@ -68,7 +69,7 @@ export function validatePlacement(
     }
     used.add(picto.cardId);
 
-    if (picto.iconId !== card.front && picto.iconId !== card.back) {
+    if (!cardIcons(card).includes(picto.iconId)) {
       return {
         ok: false,
         code: 'INVALID_PAYLOAD',

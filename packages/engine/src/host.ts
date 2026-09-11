@@ -3,6 +3,8 @@ import {
   GAME_TTL_MS,
   fail,
   type Ack,
+  type PlayerId,
+  type RelaySnapshot,
   type Rng,
 } from '@identite-secrete/shared';
 import { logger } from './logger';
@@ -12,12 +14,15 @@ import type { GameStore } from './store/GameStore';
 import { GameEngine } from './game/engine';
 import {
   ConnectionState,
+  armAbsenceTimers,
   createHandlerContext,
   defaultHandlerConfig,
   eventHandlers,
   handleDisconnect,
   type HandlerDeps,
 } from './handlers';
+import { adoptRelaySnapshot, buildRelaySnapshot } from './serialization/relay';
+import { broadcastRelay } from './emit';
 import type { ConnectionId, Emitter } from './transport';
 
 /**
@@ -62,6 +67,17 @@ export interface GameHostOptions {
   fixedCode?: string;
 }
 
+export interface AdoptOptions extends GameHostOptions {
+  /**
+   * Le joueur qui reprend l'hébergement.
+   *
+   * Sert à lui donner le salon si l'ancien hôte de salon est justement celui
+   * qui a disparu — sinon la partie repartirait avec des boutons appartenant à
+   * un fantôme, et plus personne ne pourrait avancer.
+   */
+  selfPlayerId?: PlayerId;
+}
+
 export class GameHost {
   readonly store: GameStore;
   readonly timers: TimerRegistry;
@@ -73,6 +89,11 @@ export class GameHost {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private emitListener: EmitListener;
   private closed = false;
+
+  /** Compteur monotone des instantanés de reprise émis par ce nœud. */
+  private relaySeq = 0;
+  /** Empreintes de session, calculées une fois par joueur. */
+  private readonly relayHashes = new Map<PlayerId, string>();
 
   constructor(options: GameHostOptions = {}) {
     const defaults = defaultHandlerConfig();
@@ -115,6 +136,54 @@ export class GameHost {
     };
 
     if (options.enableCleanup !== false) this.startCleanup();
+  }
+
+  /**
+   * Reprend une partie à partir d'un instantané de relais.
+   *
+   * C'est le chemin de la migration : l'hôte a disparu, un autre joueur adopte
+   * l'état qu'il avait reçu, et devient autoritaire à sa place.
+   *
+   * L'instantané doit avoir été **validé** avant d'arriver ici
+   * (`parseRelaySnapshot`) : ce qui suit reconstruit, il ne contrôle plus.
+   *
+   * Trois choses se produisent, dans cet ordre, et l'ordre compte :
+   *
+   * 1. la partie est reconstruite avec tout le monde déconnecté — c'est exact,
+   *    les canaux de l'ancien hôte n'existent plus ;
+   * 2. elle est **mise en pause**, parce qu'il n'y a personne. C'est ce qui
+   *    évite qu'un classement adopté n'enchaîne tout seul sur la manche
+   *    suivante pendant que les joueurs se rebranchent encore ;
+   * 3. les échéances d'absence sont armées. Les oublier laisserait des joueurs
+   *    fantômes occuper un siège pour toujours, et surtout laisserait le salon
+   *    à un disparu — ce qui bloque la partie pour de bon.
+   *
+   * La reprise proprement dite est ensuite du ressort de `rejoinGame` : quand
+   * assez de monde est revenu, `resumeIfPossible` relance la phase avec une
+   * échéance neuve.
+   */
+  static async adopt(snapshot: RelaySnapshot, options: AdoptOptions = {}): Promise<GameHost> {
+    const defaults = defaultHandlerConfig();
+    const now = Date.now();
+
+    const game = adoptRelaySnapshot(snapshot, {
+      rng: options.rng ?? defaults.rng,
+      now,
+      ...(options.selfPlayerId ? { selfPlayerId: options.selfPlayerId } : {}),
+    });
+
+    const store = options.store ?? new InMemoryStore();
+    await store.create(game);
+
+    const host = new GameHost({ ...options, store, fixedCode: game.code });
+
+    // Personne n'est connecté : la pause s'impose d'elle-même, et elle arme au
+    // passage l'échéance d'abandon qui évite une partie figée pour toujours.
+    await host.engine.pauseIfNeeded(game);
+    armAbsenceTimers(host.deps, game);
+
+    logger.info(`Partie ${game.code} reprise (génération ${game.epoch})`);
+    return host;
   }
 
   /** Redirige les messages sortants. Utile quand le transport est branché après coup. */
@@ -191,6 +260,36 @@ export class GameHost {
       const game = await this.store.get(code);
       if (game) await this.engine.tick(game, now);
     }
+  }
+
+  /**
+   * Diffuse à chaque invité l'instantané qui lui permettrait de reprendre la
+   * partie, et son rang dans la file de succession.
+   *
+   * Retourne `null` si la partie n'existe pas ou si l'instantané n'a pas pu
+   * être construit — `crypto.subtle` manque hors contexte sécurisé. Ce n'est
+   * pas une panne de la partie : on perd seulement la possibilité qu'un autre
+   * joueur la reprenne, et l'appelant décide s'il le signale.
+   *
+   * `excludeConnectionId` est le canal du joueur qui héberge. La file répond à
+   * « qui reprend si **je** disparais » : s'y inclure soi-même n'aurait pas de
+   * sens. Le moteur ne peut pas le deviner — `game.hostId` désigne l'hôte du
+   * salon, pas celui du moteur — donc l'appelant le lui dit.
+   */
+  async relay(code: string, excludeConnectionId?: string): Promise<RelaySnapshot | null> {
+    if (this.closed) return null;
+
+    const game = await this.store.get(code);
+    if (!game) return null;
+
+    const snapshot = await buildRelaySnapshot(game, {
+      epoch: game.epoch,
+      seq: ++this.relaySeq,
+      hashCache: this.relayHashes,
+    });
+
+    broadcastRelay(this.deps.emitter, game, snapshot, excludeConnectionId);
+    return snapshot;
   }
 
   /** Nombre de parties détenues par ce nœud. Sert au diagnostic. */

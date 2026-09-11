@@ -7,14 +7,25 @@
  * l'identique dans le navigateur de l'hôte et dans les tests.
  */
 
-export { GameHost, type EmitListener, type GameHostOptions } from './host';
+export { GameHost, type AdoptOptions, type EmitListener, type GameHostOptions } from './host';
 export { GameEngine, type EngineDeps } from './game/engine';
 export { TimerRegistry, timerKeys } from './timers';
 export { InMemoryStore } from './store/InMemoryStore';
 export type { GameStore } from './store/GameStore';
 export { RateLimiter } from './rateLimit';
 export { logger, setLogLevel, type LogLevel } from './logger';
-export { createSessionToken, createId } from './random';
+export { createSessionToken, createId, sha256Hex } from './random';
+export { broadcastRelay } from './emit';
+export {
+  adoptRelaySnapshot,
+  buildRelayHandoffs,
+  buildRelaySnapshot,
+  coerceRelayPhase,
+  settledRoundCount,
+  type AdoptRelayOptions,
+  type BuildRelayOptions,
+  type RelayHandoff,
+} from './serialization/relay';
 export {
   serializeGame,
   deserializeGame,

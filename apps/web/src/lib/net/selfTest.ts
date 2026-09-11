@@ -2,6 +2,7 @@
 
 import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
+import { ICE_SERVERS } from '@/lib/config';
 import { openPeer, supportsWebRtc } from './peer';
 import { encodeMessage, parseClientMessage } from './protocol';
 import { watchIce } from './iceInfo';
@@ -20,14 +21,20 @@ import { watchIce } from './iceInfo';
  * en plus l'état ICE et les types de candidats obtenus.
  *
  * ⚠ Ce que ce test **ne** prouve pas. La boucle est locale : elle ne traverse
- * aucun NAT, donc un vert ne garantit pas que deux téléphones se joindront
- * (voir D-58). Et l'inverse est vrai aussi — certains navigateurs refusent de se
- * connecter à eux-mêmes tout en fonctionnant très bien entre deux appareils. Un
- * échec à l'étape « canal » doit donc être confirmé par une vraie partie avant
- * d'en conclure quoi que ce soit.
+ * aucun NAT, donc un vert ne garantit pas que deux téléphones se joindront. Et
+ * l'inverse est vrai aussi — certains navigateurs refusent de se connecter à
+ * eux-mêmes tout en fonctionnant très bien entre deux appareils. Un échec à
+ * l'étape « canal » doit donc être confirmé par une vraie partie avant d'en
+ * conclure quoi que ce soit.
+ *
+ * La cinquième étape est la seule à sortir de la boucle : elle demande une
+ * allocation à un relais TURN, ce qui est le seul indice réel qu'on puisse
+ * donner sur le cas « deux réseaux différents » (D-68). Son échec ne change pas
+ * le verdict global — sans relais, une partie sur un Wi-Fi commun marche
+ * parfaitement.
  */
 
-export type StepKey = 'webrtc' | 'signaling' | 'channel' | 'data';
+export type StepKey = 'webrtc' | 'signaling' | 'channel' | 'data' | 'relay';
 export type StepStatus = 'ok' | 'failed' | 'skipped';
 
 export interface DiagnosticStep {
@@ -58,8 +65,21 @@ export interface DiagnosticReport {
 
 const OPEN_TIMEOUT_MS = 15_000;
 const DATA_TIMEOUT_MS = 8_000;
+const RELAY_TIMEOUT_MS = 10_000;
 
-export async function runTransportDiagnostic(): Promise<DiagnosticReport> {
+export interface DiagnosticOptions {
+  /**
+   * Tester le relais TURN. Coûte jusqu'à dix secondes et une allocation sur un
+   * service tiers : la page `/diagnostic` le veut, le point vert de l'accueil
+   * non — le relais ne change de toute façon pas son verdict.
+   */
+  relay?: boolean;
+}
+
+export async function runTransportDiagnostic(
+  options: DiagnosticOptions = {},
+): Promise<DiagnosticReport> {
+  const withRelay = options.relay ?? true;
   const steps: DiagnosticStep[] = [];
   const environment = describeEnvironment();
 
@@ -67,12 +87,13 @@ export async function runTransportDiagnostic(): Promise<DiagnosticReport> {
     steps.push({ key, label, status, detail });
 
   const skipRest = (from: StepKey): void => {
-    const order: StepKey[] = ['webrtc', 'signaling', 'channel', 'data'];
+    const order: StepKey[] = ['webrtc', 'signaling', 'channel', 'data', 'relay'];
     const labels: Record<StepKey, string> = {
       webrtc: 'WebRTC disponible',
       signaling: 'Mise en relation',
       channel: 'Ouverture du canal',
       data: 'Passage d’un message',
+      relay: 'Relais TURN',
     };
     for (const key of order.slice(order.indexOf(from))) {
       push(key, labels[key], 'skipped', 'non testé');
@@ -119,21 +140,121 @@ export async function runTransportDiagnostic(): Promise<DiagnosticReport> {
       return { outcome: 'no-data', steps, environment };
     }
     push('data', 'Passage d’un message', 'ok', delivered.detail);
-
-    return { outcome: 'ready', steps, environment };
   } catch (cause) {
     push('channel', 'Ouverture du canal', 'failed', message(cause));
     push('data', 'Passage d’un message', 'skipped', 'non testé');
+    push('relay', 'Relais TURN', 'skipped', 'non testé');
     return { outcome: 'no-channel', steps, environment };
   } finally {
     caller.destroy();
     receiver.destroy();
   }
+
+  // ── 5. Relais TURN ───────────────────────────────────────────
+  // La seule étape qui dise quelque chose du cas « deux réseaux différents ».
+  // Son échec ne change pas le verdict : sans relais, une partie sur un Wi-Fi
+  // commun marche parfaitement. Il n'annonce qu'une chose, et c'est déjà
+  // beaucoup — que ce téléphone-là ne pourra pas jouer avec un autre réseau.
+  if (withRelay) {
+    const relay = await probeRelay();
+    push('relay', 'Relais TURN', relay.ok ? 'ok' : 'failed', relay.detail);
+  } else {
+    push('relay', 'Relais TURN', 'skipped', 'non testé');
+  }
+
+  return { outcome: 'ready', steps, environment };
 }
 
-/** Le verdict seul, pour le bandeau d'accueil. */
+/**
+ * Vérifie qu'un relais TURN alloue vraiment, depuis ce réseau.
+ *
+ * C'est la question à laquelle la boucle locale ne répond pas, et c'est la
+ * seule qui compte pour deux joueurs sur deux réseaux mobiles : leurs
+ * navigateurs ne trouveront aucun chemin direct, et tout reposera sur le
+ * relais. Un relais public gratuit peut être saturé, expiré, ou bloqué par le
+ * réseau de l'utilisateur — mieux vaut l'apprendre ici qu'au milieu d'une partie.
+ *
+ * `iceTransportPolicy: 'relay'` demande au navigateur de **ne rassembler que**
+ * des candidats relayés : obtenir un seul candidat prouve que l'allocation a
+ * réussi, et n'en obtenir aucun prouve le contraire, sans ambiguïté.
+ */
+async function probeRelay(): Promise<{ ok: boolean; detail: string }> {
+  const relays = ICE_SERVERS.filter(isTurn);
+  if (relays.length === 0) {
+    return { ok: false, detail: 'aucun relais configuré (NEXT_PUBLIC_ICE_SERVERS)' };
+  }
+
+  let pc: RTCPeerConnection;
+  try {
+    pc = new RTCPeerConnection({ iceServers: relays, iceTransportPolicy: 'relay' });
+  } catch (cause) {
+    return { ok: false, detail: message(cause) };
+  }
+
+  try {
+    return await new Promise<{ ok: boolean; detail: string }>((resolve) => {
+      let settled = false;
+      // Les erreurs ICE sont le vrai diagnostic : 401 dit « identifiants
+      // refusés », 701 dit « serveur injoignable ». Sans elles on ne saurait
+      // rapporter qu'un silence.
+      const errors: string[] = [];
+
+      const finish = (result: { ok: boolean; detail: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+
+      const timer = setTimeout(() => {
+        finish({ ok: false, detail: describeRelayFailure(relays, errors, 'délai dépassé') });
+      }, RELAY_TIMEOUT_MS);
+
+      pc.addEventListener('icecandidate', (event) => {
+        if (event.candidate === null) {
+          // Fin du rassemblement sans le moindre candidat relayé.
+          finish({ ok: false, detail: describeRelayFailure(relays, errors, 'aucun candidat') });
+          return;
+        }
+        if (event.candidate.type === 'relay') {
+          finish({ ok: true, detail: `relais joignable (${relays.length} déclaré(s))` });
+        }
+      });
+
+      pc.addEventListener('icecandidateerror', (event) => {
+        const error = event as RTCPeerConnectionIceErrorEvent;
+        if (errors.length < 3) errors.push(`${error.errorCode ?? '?'} ${error.url ?? ''}`.trim());
+      });
+
+      // Un canal est nécessaire : sans piste ni canal, l'offre ne déclenche
+      // aucun rassemblement de candidats.
+      pc.createDataChannel('sonde-relais');
+      pc.createOffer()
+        .then((offer) => pc.setLocalDescription(offer))
+        .catch((cause: unknown) => finish({ ok: false, detail: message(cause) }));
+    });
+  } finally {
+    pc.close();
+  }
+}
+
+function isTurn(server: RTCIceServer): boolean {
+  const urls = typeof server.urls === 'string' ? [server.urls] : (server.urls ?? []);
+  return urls.some((url) => url.startsWith('turn:') || url.startsWith('turns:'));
+}
+
+function describeRelayFailure(
+  relays: RTCIceServer[],
+  errors: string[],
+  reason: string,
+): string {
+  const cause = errors.length > 0 ? ` · erreurs ICE ${errors.join(', ')}` : '';
+  return `${reason} sur ${relays.length} relais${cause}`;
+}
+
+/** Le verdict seul, pour le bandeau d'accueil — sans la sonde du relais. */
 export async function runTransportSelfTest(): Promise<Outcome> {
-  return (await runTransportDiagnostic()).outcome;
+  return (await runTransportDiagnostic({ relay: false })).outcome;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,7 +281,10 @@ function openLoopback(caller: Peer, receiver: Peer): Promise<Loopback> {
   // que quelqu'un l'écoute.
   const received = new Promise<string | null>((resolve) => {
     receiver.on('connection', (incoming: DataConnection) => {
-      incoming.on('data', (raw) => resolve(parseClientMessage(raw)?.event ?? null));
+      incoming.on('data', (raw) => {
+        const message = parseClientMessage(raw);
+        resolve(message?.t === 'req' ? message.event : null);
+      });
     });
     setTimeout(() => resolve(null), OPEN_TIMEOUT_MS + DATA_TIMEOUT_MS);
   });

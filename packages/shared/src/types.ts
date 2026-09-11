@@ -80,18 +80,22 @@ export interface GameIcon {
 //  Cartes Picto
 // ─────────────────────────────────────────────────────────────
 
+/** Une face de carte Picto : deux pictogrammes. */
+export type PictoFace = [IconId, IconId];
+
 /**
- * Une carte Picto : **deux pictogrammes, un par face**.
+ * Une carte Picto : **deux faces de deux pictogrammes**, soit quatre par carte.
  *
- * Le joueur choisit la face qu'il montre, et la carte entière est défaussée —
- * l'autre face part avec elle. C'est ce qui rend chaque carte précieuse : elle
- * porte deux idées, on n'en jouera jamais qu'une.
+ * Comme dans la boîte : on glisse la carte dans un emplacement du boîtier, côté
+ * recto ou verso, de sorte qu'**un seul** des quatre pictogrammes reste visible.
+ * La carte entière part ensuite à la défausse — les trois autres avec elle.
+ * C'est ce qui rend chaque carte précieuse : quatre idées, une seule jouée.
  */
 export interface PictoCard {
   /** Unique dans la main d'un joueur, pour toute la partie. */
   id: string;
-  front: IconId;
-  back: IconId;
+  front: PictoFace;
+  back: PictoFace;
 }
 
 /**
@@ -104,19 +108,20 @@ export type PictoZone = 'green' | 'red';
 
 /**
  * Un pictogramme **tel que les autres le voient** : l'image et la zone.
+ * (Les trois autres pictogrammes de la carte ne sortent jamais.)
  *
  * C'est tout ce dont un adversaire a besoin pour voter, et donc tout ce qui
  * sort. La carte d'où vient l'image ne le regarde pas.
  */
 export interface ShownPicto {
-  /** La face montrée. */
+  /** Le pictogramme montré — l'un des quatre de la carte. */
   iconId: IconId;
   zone: PictoZone;
 }
 
 /** Un pictogramme posé dans son propre boîtier : en plus, la carte d'origine. */
 export interface PlacedPicto extends ShownPicto {
-  /** La carte jouée — c'est elle qui part à la défausse, avec son autre face. */
+  /** La carte jouée — elle part à la défausse, avec ses trois autres pictogrammes. */
   cardId: string;
 }
 
@@ -173,6 +178,15 @@ export interface Player {
   id: PlayerId;
   /** Secret. Ne quitte jamais l'hôte, sauf vers son propriétaire. */
   sessionToken: string;
+  /**
+   * Empreinte du jeton d'avant une reprise d'hébergement.
+   *
+   * Présente uniquement sur une partie adoptée depuis un instantané de relais :
+   * le nouvel hôte n'a jamais reçu les jetons, seulement leurs empreintes. Le
+   * joueur présente le sien, l'empreinte est vérifiée, et ce champ disparaît au
+   * profit du jeton réel. Absent le reste du temps.
+   */
+  sessionTokenHash?: string;
   /** Lien de transport en cours. `null` quand le joueur est déconnecté. */
   connectionId: string | null;
   nickname: string;
@@ -237,6 +251,16 @@ export interface Game {
   createdAt: number;
   lastActivityAt: number;
   /**
+   * Génération d'hébergement.
+   *
+   * 0 à la création, incrémentée à chaque reprise par un autre joueur. Elle ne
+   * change rien aux règles : elle sert à trancher entre deux nœuds qui
+   * croiraient tous deux héberger la partie — l'ancien hôte revenu après une
+   * migration, typiquement. Un client qui reçoit une vue d'une génération
+   * inférieure à celle qu'il connaît l'ignore.
+   */
+  epoch: number;
+  /**
    * Instant de mise en pause faute de joueurs connectés (§9).
    * `null` quand la partie tourne normalement.
    */
@@ -296,6 +320,16 @@ export interface RoundScoreLine {
 }
 
 /** Révélation d'un boîtier, disponible seulement à partir de RESULTS. */
+/** Un vote reçu par un joueur, tel qu'on le dépouille en fin de manche. */
+export interface RevealedVote {
+  /** Le votant. */
+  playerId: PlayerId;
+  nickname: string;
+  /** Le numéro qu'il a proposé. `null` s'il a laissé la case vide. */
+  slot: Slot | null;
+  correct: boolean;
+}
+
 export interface RoundReveal {
   playerId: PlayerId;
   nickname: string;
@@ -305,6 +339,14 @@ export interface RoundReveal {
   placed: ShownPicto[];
   /** Joueurs ayant voté juste pour lui. */
   guessedByPlayerIds: PlayerId[];
+  /**
+   * Ce que chacun a voté pour lui, juste ou faux, cases vides comprises.
+   *
+   * C'est ce qu'on veut lire autour de la table une fois la manche finie —
+   * « tu m'as pris pour Hercule ? » — et c'est public à ce stade : tout est
+   * révélé en phase RESULTS.
+   */
+  votes: RevealedVote[];
   /** Nombre de votants possibles (N − 1). */
   possibleGuessers: number;
 }
@@ -322,6 +364,15 @@ export interface GameStats {
  */
 export interface PlayerView {
   code: string;
+  /**
+   * Génération d'hébergement de la partie qui émet cette vue.
+   *
+   * Le seul moyen pour un client de s'apercevoir qu'il reçoit des vues de deux
+   * hôtes concurrents — ce qui peut arriver si le courtier est partitionné et
+   * laisse deux nœuds réserver le même identifiant. Sans elle, la partie se
+   * scinderait en deux sans le moindre symptôme.
+   */
+  epoch: number;
   phase: Phase;
   roundNumber: number;
   totalRounds: number;

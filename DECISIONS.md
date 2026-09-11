@@ -815,7 +815,7 @@ sa propre série ni lire l'identité d'un voisin.
 La table d'événements est fermée : un nom inconnu est rejeté, il n'existe aucun chemin
 générique par lequel un message inattendu atteindrait l'état.
 
-### D-58 · Un TURN n'est pas fourni, et c'est assumé
+### D-58 · Un TURN n'est pas fourni, et c'est assumé — *révisée par D-61*
 
 Sans relais, deux joueurs sur deux réseaux mobiles différents peuvent ne pas réussir à
 s'atteindre — NAT symétrique. Un TURN règle le cas, mais il fait transiter tout le trafic :
@@ -824,6 +824,10 @@ il ne peut pas être gratuit, et en fournir un annulerait l'intérêt du projet.
 Le cadre visé est une pièce et un Wi-Fi commun, où les STUN publics suffisent. Le point de
 configuration existe (`NEXT_PUBLIC_ICE_SERVERS`) pour brancher un relais sans toucher au
 code, et le README dit franchement quand il devient nécessaire.
+
+**Ce qui a changé.** Le raisonnement tenait sur une prémisse fausse : « pas de serveur à
+soi » n'impose pas « pas de relais du tout ». Il existe des relais publics mutualisés, et
+s'en passer par principe revenait à faire payer la doctrine aux joueurs. Voir D-68.
 
 ### D-59 · On sérialise les messages nous-mêmes, en chaînes, à cause de Safari
 
@@ -983,6 +987,175 @@ ligne qui en a besoin, et il reste donc réglable.
 
 **Coût.** Le salon perd trois rangées de réglages. Elles sont remplacées par une ligne
 qui énonce ce que les règles fixent, pour que personne ne cherche l'option disparue.
+
+---
+
+## Lot 9 — Fiabilité de l’hébergement
+
+### D-68 · Un relais public par défaut, plutôt qu'une doctrine tenue jusqu'au bout
+
+D-58 refusait de fournir un TURN au motif qu'un relais fait transiter le trafic, donc ne
+peut pas être gratuit, donc supposerait une infrastructure — ce que le projet s'interdit.
+
+Le raisonnement confondait deux choses. « Pas de serveur **à soi** » n'impose pas « pas de
+relais **du tout** » : il existe des relais publics mutualisés, et refuser de les brancher
+revenait à faire payer la doctrine aux joueurs. Le symptôme n'était d'ailleurs pas une
+partie dégradée mais une partie **impossible** — deux réseaux mobiles différents, et le
+canal ne s'ouvre jamais.
+
+`openrelay.metered.ca` est donc dans la liste par défaut, sur trois ports : 80 pour passer
+la plupart des pare-feux, 443 pour ceux qui n'acceptent que du chiffré, et `transport=tcp`
+pour les réseaux qui bloquent UDP. Ses identifiants sont en clair dans le bundle, et c'est
+sans conséquence : dans une application sans serveur, tout ce que le navigateur doit
+connaître est de toute façon dans le bundle.
+
+Ce que ça n'est pas : une garantie. Un service gratuit et mutualisé peut être lent, saturé,
+ou disparaître du jour au lendemain. D'où les deux compléments :
+
+- `NEXT_PUBLIC_ICE_SERVERS` **remplace** la liste, pour brancher un relais à soi ;
+- `/diagnostic` gagne une cinquième étape qui demande vraiment une allocation
+  (`iceTransportPolicy: 'relay'`) et rapporte les codes d'erreur ICE — 401 pour des
+  identifiants refusés, 701 pour un serveur injoignable. C'est la seule étape qui dise
+  quelque chose du cas « deux réseaux différents », et son échec ne change pas le verdict
+  global : sans relais, une partie sur un Wi-Fi commun marche toujours.
+
+### D-69 · Le canal muet est une panne à part entière, et il faut un battement pour le voir
+
+La reconnexion traitait bien la coupure franche : `close` arrive, l'échelle de retentatives
+démarre. Elle ne traitait pas le cas le plus pénible en pratique — le canal **à moitié
+ouvert**. Le navigateur le croit vivant, `send` ne lève rien, et rien ne revient jamais.
+L'invité restait « connecté » devant un écran qui ne bougeait plus, et l'hôte gardait un
+joueur fantôme dont il attendait le vote pour changer de phase.
+
+Un battement de cœur applicatif tranche : l'invité envoie un `ping` toutes les cinq
+secondes, l'hôte répond `pong`, et chacun tient la date du dernier signe de vie. Passé
+seize secondes de silence, l'invité referme lui-même le canal — ce qui remet la reconnexion
+sur le chemin ordinaire. Passé vingt-cinq secondes, l'hôte oublie l'invité, et le moteur
+ouvre sa période de grâce comme pour n'importe quelle déconnexion.
+
+Les seuils ne sont pas symétriques, et c'est voulu : se tromper coûte plus cher à l'hôte,
+qui retirerait de la partie quelqu'un qui est encore là.
+
+Le battement est une enveloppe de **transport** (`protocol.ts`), pas un événement de jeu.
+Il ne traverse ni la table d'événements du moteur, ni les schémas Zod, ni le limiteur de
+débit — compter un battement comme une action ferait exclure pour abus un joueur qui ne
+fait que rester connecté.
+
+### D-70 · L'hôte aussi doit pouvoir revenir
+
+Toute la logique de reconnexion était du côté de l'invité. L'hôte, lui, n'avait qu'un
+`peer.reconnect()` sur la perte de signalisation — inopérant dans le cas qui compte : sur
+une erreur réseau fatale, PeerJS **détruit** le pair, et un pair détruit ne se répare pas.
+L'hôte basculait alors en `offline` et y restait. Plus personne ne pouvait le rejoindre, et
+rien à l'écran ne le lui disait.
+
+Il rouvre désormais un pair sous le même identifiant, selon une échelle de reculs qui
+couvre un peu plus de deux minutes. Comme l'identifiant de signalisation **est** le code de
+la partie, le reprendre suffit : les invités recomposent le même numéro et retombent sur
+lui.
+
+Deux précautions :
+
+- **deux tentatives seulement** par recul, là où le rafraîchissement de page en utilise
+  cinq. Si l'identifiant est pris, c'est qu'un autre nœud héberge désormais la partie, et
+  insister la casserait en deux ;
+- les canaux de l'ancien pair sont morts avec lui : on les oublie explicitement, pour que
+  le moteur ouvre la période de grâce de chaque joueur au lieu de les croire présents.
+
+### D-71 · L'écran de l'hôte reste allumé
+
+La fragilité la plus bête, et la plus fréquente : le moteur tourne dans un onglet, et quand
+l'écran de ce téléphone s'éteint, le système gèle l'onglet. Les minuteurs s'arrêtent, les
+canaux finissent par tomber, et sept personnes regardent un décompte figé parce qu'une
+huitième a posé son téléphone sur la table.
+
+`Screen Wake Lock` demande au système de ne pas éteindre l'écran tant que la page est
+visible. Le verrou est relâché par le système à chaque passage en arrière-plan et n'est pas
+repris tout seul — d'où le réabonnement sur `visibilitychange`, sans lequel il ne tiendrait
+que jusqu'au premier coup d'œil à une notification.
+
+Tout échec est silencieux : l'API n'existe pas partout, exige un contexte sécurisé, et
+certains navigateurs la refusent en économie de batterie. Ce n'est qu'un confort, rien n'en
+dépend — elle ne peut d'ailleurs rien contre un verrouillage manuel ni un changement
+d'application, ce qui reste le domaine du reste du filet.
+
+### D-72 · « Cette partie n'existe pas » ne se dit qu'à ceux qui n'y étaient pas
+
+`GuestNode.connect` échouait dès le premier appel infructueux, et l'écran affichait « cette
+partie n'est plus ouverte ». Or l'échec le plus fréquent n'est pas un code erroné : c'est
+un hôte en train de rafraîchir sa page. Un joueur qui rechargeait son onglet au mauvais
+moment se voyait annoncer la fin d'une partie qui reprenait deux secondes plus tard — et
+sans échelle de reconnexion, puisque le nœud n'avait jamais existé.
+
+La session stockée départage les deux situations. La posséder veut dire qu'on a été admis
+dans cette partie, donc qu'elle a existé, donc qu'un hôte absent est probablement en train
+de revenir : on rend alors un nœud hors ligne dont l'échelle tourne déjà, exactement comme
+si la coupure était survenue une seconde plus tard. Sans session, on est un inconnu qui
+vient de taper un code, et le faire patienter trente secondes devant une faute de frappe
+serait une faute.
+
+Même raisonnement pour le verdict `host-gone`, qui exigeait sept échecs sans considérer le
+temps écoulé. Il demande maintenant une série d'échecs **et** une durée : le budget à
+couvrir est celui d'un rafraîchissement de l'hôte — rechargement du document, import
+dynamique de `peerjs`, puis jusqu'à six secondes de reculs pour reprendre l'identifiant.
+Le nombre seul ne disait rien, puisque les premiers reculs se comptent en centaines de
+millisecondes.
+
+## Lot 10 — La fin de manche appartient à la table
+
+### D-75 · Plus de minuteur après une manche : l'hôte enchaîne
+
+**Décision.** La phase `RESULTS` n'a plus d'échéance, et le classement intermédiaire
+non plus. L'hôte lance la manche suivante — ou le classement final — par un bouton,
+depuis la révélation. La révélation détaille aussi, pour chaque joueur, **ce que
+chacun a voté pour lui**, juste ou faux, cases vides et leurres compris.
+
+**Pourquoi.** Les joueurs n'avaient pas le temps de voir qui avait voté quoi ni quel
+personnage portait chacun : la révélation durait 1,5 s par boîtier plus 3 s, puis le
+classement 20 s, et la manche suivante partait toute seule. Or c'est le moment où la
+table discute — « tu m'as pris pour Hercule ? » — et c'est une bonne part du plaisir.
+Le livret, lui, ne presse personne entre deux manches.
+
+**Coût.** Une partie peut désormais rester indéfiniment sur une révélation si l'hôte ne
+revient pas. Le filet existant suffit : sans hôte connecté, le rôle est transféré au
+bout de 30 s, et le nouvel hôte hérite du bouton. `SCOREBOARD` reste une phase valide —
+une reprise après migration y atterrit — et le même bouton y fonctionne ; dans le
+déroulé normal, on passe directement de la révélation à la manche suivante. Les tests
+qui comptaient sur l'enchaînement automatique appuient maintenant sur le bouton, via
+`hostPlaysToTheEnd` et `waitForRoundEnd`.
+
+---
+
+### D-76 · Une carte Picto porte quatre pictogrammes, deux par face
+
+**Décision.** `PictoCard` passe de `front` / `back` (un pictogramme chacun) à deux faces
+de deux pictogrammes. Une main de 10 cartes porte donc 40 pictogrammes distincts, et le
+joueur en montre **un seul par carte** ; la carte entière part à la défausse.
+`cardIcons` est le seul point d'accès à « ce qui est sur la carte » — validation, tirage
+automatique et affichage passent par lui.
+
+**Pourquoi.** C'est le matériel de la boîte : on glisse la carte dans son emplacement,
+côté recto ou verso, de sorte qu'un seul des quatre pictogrammes reste visible. Avec
+deux par carte, la main était trop pauvre pour faire deviner quatre personnages, et le
+choix de la carte à sacrifier perdait l'essentiel de son dilemme.
+
+**Coût.** La sauvegarde locale passe en version 4 et refuse les précédentes : une main à
+l'ancienne forme ferait planter l'écran de pose. L'écran de la main affiche quatre
+tuiles par carte, en deux groupes recto / verso, ce qui reste lisible sur un téléphone.
+
+---
+
+### D-77 · Le détail de fin de partie additionne toutes les manches
+
+**Décision.** `buildStandings` reçoit la liste des manches à détailler : la dernière pour
+un écran de fin de manche, **toutes** pour l'écran de fin de partie.
+
+**Pourquoi.** Le classement final était construit sans manche : les colonnes « faire
+deviner » et « bonnes réponses » y valaient donc toujours zéro, sous un total cumulé
+pourtant juste. Le bug était invisible dans les tests, qui ne vérifiaient que le cumul.
+Ils vérifient désormais le détail.
+
+**Coût.** Aucun.
 
 ---
 

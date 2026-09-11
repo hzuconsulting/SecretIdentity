@@ -137,3 +137,57 @@ describe('validation de l’enveloppe', () => {
     });
   });
 });
+
+/**
+ * Le battement de cœur.
+ *
+ * Il est au niveau du transport, et pas au niveau du jeu, pour une raison
+ * précise : il ne doit traverser ni la table d'événements du moteur, ni les
+ * schémas Zod, ni le limiteur de débit. Un battement n'est pas une action du
+ * joueur, et le compter comme telle ferait exclure pour abus un joueur qui ne
+ * fait que rester connecté.
+ */
+describe('battement de cœur', () => {
+  it('fait l’aller-retour ping/pong', () => {
+    const ping = { t: 'ping' as const, at: 1_700_000_000_000 };
+    const pong = { t: 'pong' as const, at: 1_700_000_000_000 };
+
+    expect(parseClientMessage(encodeMessage(ping))).toEqual(ping);
+    expect(parseHostMessage(encodeMessage(pong))).toEqual(pong);
+  });
+
+  it('ne coûte que quelques dizaines d’octets', () => {
+    // Envoyé toutes les cinq secondes à chaque joueur : la taille compte.
+    expect(encodeMessage({ t: 'ping', at: Date.now() }).length).toBeLessThan(40);
+  });
+
+  it('tolère un horodatage absent ou fantaisiste', () => {
+    // `at` ne sert qu'au journal : une valeur douteuse ne doit pas faire
+    // rejeter le battement, sinon un pair à l'horloge cassée passerait pour mort.
+    for (const at of [undefined, 'hier', Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(parseClientMessage(JSON.stringify({ t: 'ping', at }))).toEqual({ t: 'ping', at: 0 });
+      expect(parseHostMessage(JSON.stringify({ t: 'pong', at }))).toEqual({ t: 'pong', at: 0 });
+    }
+  });
+
+  it('ne confond pas un battement avec une requête', () => {
+    const ping = parseClientMessage(encodeMessage({ t: 'ping', at: 1 }));
+
+    // Le discriminant est ce qui protège `dispatch` : un battement ne doit
+    // jamais atteindre le moteur sous l'apparence d'un événement vide.
+    expect(ping?.t).toBe('ping');
+    expect(ping).not.toHaveProperty('event');
+  });
+});
+
+describe('garde en réception', () => {
+  it('refuse une chaîne démesurée sans tenter de l’analyser', () => {
+    // Le plafond d'émission ne protège que de nos propres bugs. Celui-ci
+    // protège d'un pair détraqué : `JSON.parse` sur plusieurs mégaoctets fige
+    // l'onglet avant même qu'on ait pu refuser le message.
+    const enorme = JSON.stringify({ t: 'evt', event: 'x', payload: 'y'.repeat(200_000) });
+
+    expect(parseHostMessage(enorme)).toBeNull();
+    expect(parseClientMessage(enorme)).toBeNull();
+  });
+});

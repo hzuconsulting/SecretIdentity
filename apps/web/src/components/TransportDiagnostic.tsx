@@ -64,7 +64,8 @@ export function TransportDiagnostic() {
         </h1>
         <p className="mt-2 text-base font-semibold text-muted">
           Cet appareil se connecte à lui-même et fait passer un message, comme pendant une
-          partie.
+          partie, puis vérifie qu’un relais répond — c’est lui qui permet de jouer entre
+          deux réseaux différents.
         </p>
       </div>
 
@@ -85,7 +86,7 @@ export function TransportDiagnostic() {
       {report ? (
         <>
           <p className="rounded-tile bg-white/60 p-4 text-sm font-semibold text-muted">
-            {VERDICTS[report.outcome]}
+            {verdictFor(report)}
           </p>
 
           <section>
@@ -182,8 +183,26 @@ function StepRow({ step }: { step: DiagnosticStep }) {
   );
 }
 
+/**
+ * Le verdict lisible.
+ *
+ * Le cas `ready` se dédouble, parce que l'étape du relais change entièrement le
+ * conseil à donner. Avec relais, deux joueurs sur deux réseaux différents
+ * devraient s'atteindre. Sans lui, il n'y a qu'une chose à faire, et autant la
+ * dire clairement plutôt que de laisser chercher.
+ */
+function verdictFor(report: DiagnosticReport): string {
+  if (report.outcome !== 'ready') return VERDICTS[report.outcome];
+
+  const relay = report.steps.find((step) => step.key === 'relay');
+  return relay?.status === 'ok' ? VERDICTS.ready : VERDICT_READY_WITHOUT_RELAY;
+}
+
+const VERDICT_READY_WITHOUT_RELAY =
+  'Le transport fonctionne sur cet appareil, mais aucun relais n’a répondu. Sur un Wi-Fi commun tout ira bien ; entre deux réseaux mobiles, la connexion a de fortes chances d’échouer. Mets tout le monde sur le même Wi-Fi, ou branche ton propre relais.';
+
 const VERDICTS: Record<DiagnosticReport['outcome'], string> = {
-  ready: 'Tout fonctionne sur cet appareil. Si une partie échoue quand même, c’est le réseau qui sépare les joueurs — mets tout le monde sur le même Wi-Fi.',
+  ready: 'Tout fonctionne sur cet appareil, relais compris. Deux joueurs sur deux réseaux différents devraient s’atteindre.',
   'no-webrtc':
     'Ce navigateur ne fait pas de WebRTC. Vérifie que l’adresse commence par https, et que le mode isolement d’iOS n’est pas actif.',
   'no-signaling':

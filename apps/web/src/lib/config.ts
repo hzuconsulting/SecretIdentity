@@ -65,19 +65,40 @@ export const SIGNALING = readSignalingConfig();
 /**
  * Serveurs ICE.
  *
- * Les STUN publics suffisent au cas courant — tout le monde dans le même salon,
- * sur le même Wi-Fi. Ils ne suffisent pas derrière certains NAT symétriques
- * (typiquement deux réseaux mobiles différents) : il faut alors un relais TURN,
- * qui ne peut pas être gratuit puisqu'il fait transiter le trafic.
+ * Les STUN suffisent au cas courant — tout le monde dans le même salon, sur le
+ * même Wi-Fi : ils apprennent à chaque pair son adresse publique, et les deux se
+ * parlent ensuite directement. Ils ne suffisent pas derrière un NAT symétrique,
+ * typiquement deux réseaux mobiles différents, où aucune adresse devinée ne
+ * fonctionne. Il faut alors un **relais TURN**, qui fait transiter le trafic.
+ *
+ * Un relais public est donc inclus par défaut (D-68). Ses identifiants sont
+ * volontairement en clair : dans une application sans serveur, tout ce que le
+ * navigateur doit connaître est de toute façon dans le bundle. C'est un service
+ * gratuit et mutualisé — il peut être lent, saturé, ou disparaître. Il est là
+ * pour que le cas « deux réseaux différents » marche *par défaut*, pas pour
+ * garantir un débit.
+ *
+ * Les trois entrées TURN ne sont pas redondantes : le port 80 passe la plupart
+ * des pare-feux, le 443 ceux qui n'autorisent que le trafic chiffré, et la
+ * variante `transport=tcp` les réseaux qui bloquent UDP entièrement.
  *
  * `NEXT_PUBLIC_ICE_SERVERS` accepte le tableau JSON attendu par WebRTC, par
  * exemple :
  *   [{"urls":"turn:mon-turn:3478","username":"u","credential":"p"}]
- * Il **remplace** la liste par défaut.
+ * Il **remplace** la liste par défaut — c'est le point de branchement d'un
+ * relais à soi, et la marche à suivre est dans le README.
  */
+const OPEN_RELAY_CREDENTIALS = {
+  username: 'openrelayproject',
+  credential: 'openrelayproject',
+} as const;
+
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:global.stun.twilio.com:3478' },
+  { urls: 'turn:openrelay.metered.ca:80', ...OPEN_RELAY_CREDENTIALS },
+  { urls: 'turn:openrelay.metered.ca:443', ...OPEN_RELAY_CREDENTIALS },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', ...OPEN_RELAY_CREDENTIALS },
 ];
 
 function readIceServers(): RTCIceServer[] {
@@ -99,3 +120,52 @@ export const ICE_SERVERS = readIceServers();
 
 /** Délai au-delà duquel une action sans réponse est déclarée perdue. */
 export const REQUEST_TIMEOUT_MS = 8_000;
+
+// ─────────────────────────────────────────────────────────────
+//  Détection de coupure
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Rythme du battement de cœur applicatif.
+ *
+ * Un canal WebRTC ne prévient pas toujours de sa mort. Le cas le plus pénible
+ * n'est pas la coupure franche — elle déclenche `close` — mais le canal
+ * **à moitié ouvert** : le navigateur le croit vivant, les messages partent
+ * sans erreur, et rien ne revient jamais. L'invité restait alors « connecté »
+ * devant un écran qui ne bouge plus.
+ *
+ * Ce battement ne passe pas par le moteur : c'est une enveloppe de transport
+ * (`protocol.ts`), donc il ne traverse ni la table d'événements, ni les
+ * schémas Zod, ni le limiteur de débit. Il ne coûte que quelques octets.
+ */
+export const HEARTBEAT_INTERVAL_MS = 5_000;
+
+/**
+ * Silence au-delà duquel le canal est déclaré mort.
+ *
+ * Trois battements manqués. Assez court pour qu'un joueur ne reste pas devant
+ * un écran figé, assez long pour encaisser une poignée de paquets perdus ou un
+ * passage de tunnel.
+ */
+export const HEARTBEAT_TIMEOUT_MS = 16_000;
+
+/**
+ * Silence au-delà duquel l'hôte oublie un invité.
+ *
+ * Plus tolérant que le seuil de l'invité : c'est l'hôte qui décide qui est
+ * absent, et se tromper lui coûte plus cher — il retirerait de la partie
+ * quelqu'un qui est encore là. Le moteur a de toute façon sa propre période de
+ * grâce par-dessus (`DISCONNECT_GRACE_MS`).
+ */
+export const GUEST_SILENCE_TIMEOUT_MS = 25_000;
+
+/**
+ * Durée d'échecs continus au-delà de laquelle l'hôte est déclaré parti.
+ *
+ * Le budget à couvrir est celui d'un **rafraîchissement de page de l'hôte** :
+ * rechargement du document, import dynamique de `peerjs`, puis jusqu'à six
+ * secondes de reculs dans `claimWithRetry`. Une dizaine de secondes en usage
+ * normal. En deçà, on afficherait « la partie est finie » à des joueurs dont
+ * l'hôte revient une seconde plus tard.
+ */
+export const HOST_GONE_MS = 20_000;

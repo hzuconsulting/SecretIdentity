@@ -101,11 +101,15 @@ try {
 
     const faces = page.getByRole('button', { name: /appuie pour poser/i });
     const count = await faces.count();
-    if (count !== 20) throw new Error(`${count} faces en main, attendu 20 (10 cartes)`);
+    // 10 cartes de 4 pictogrammes (deux par face).
+    if (count !== 40) throw new Error(`${count} pictogrammes en main, attendu 40 (10 cartes)`);
 
     await faces.nth(0).click();
     await page.getByRole('radio', { name: /n’est pas représentatif/i }).click();
-    await faces.nth(2).click();
+    // Le 6ᵉ bouton : second pictogramme du recto de la *deuxième* carte. Les
+    // quatre premiers appartiennent à la même carte, et y taper changerait
+    // simplement de pictogramme au lieu d'en poser un second.
+    await faces.nth(5).click();
 
     await page.getByRole('button', { name: /valider mon boîtier/i }).click();
     await page.getByRole('button', { name: /^Confirmer$/ }).click();
@@ -135,15 +139,42 @@ try {
   }
   ok('revelation affichee');
 
+  // Tout le monde voit le dépouillement des votes, une fois la révélation finie.
   for (const page of players) {
-    await page.getByRole('heading', { name: /Classement/i }).waitFor({ timeout: 40_000 });
+    await page.getByRole('button', { name: /tout révéler/i }).click().catch(() => {});
+    await page.getByText(/Ce que les autres ont voté/i).first().waitFor({ timeout: 30_000 });
   }
-  ok('classement de fin de manche');
+  ok('le detail des votes est affiche a chacun');
 
-  const resteEnMain = await host.evaluate(
-    () => document.body.innerText.match(/(\d+)\s+cartes? en main/)?.[1],
-  );
-  if (resteEnMain !== '8') throw new Error(`${resteEnMain} cartes en main, attendu 8`);
+  // Pas de minuteur : on attend bien plus longtemps que l'ancienne echeance,
+  // et personne ne bouge de la revelation.
+  await host.getByRole('button', { name: /^Manche suivante$/i }).waitFor({ timeout: 20_000 });
+  await host.waitForTimeout(12_000);
+  for (const page of players) {
+    await page.getByRole('heading', { name: /Révélation/i }).waitFor({ timeout: 2_000 });
+  }
+  ok('la revelation reste affichee sans minuteur');
+
+  // Seul l'hote a le bouton ; les autres attendent.
+  for (const page of [allan, malo]) {
+    if ((await page.getByRole('button', { name: /^Manche suivante$/i }).count()) !== 0) {
+      throw new Error('un invite voit le bouton de manche suivante');
+    }
+    await page.getByText(/L’hôte lancera la manche suivante/i).waitFor({ timeout: 5_000 });
+  }
+  ok("seul l'hote peut lancer la manche suivante");
+
+  await host.getByRole('button', { name: /^Manche suivante$/i }).click();
+  for (const page of players) {
+    await page.getByRole('heading', { name: /Ta carte Mystère/i }).waitFor({ timeout: 30_000 });
+  }
+  ok("l'hote a lance la manche 2");
+
+  await host.getByRole('heading', { level: 1, name: /^Ton boîtier$/i }).waitFor({
+    timeout: 30_000,
+  });
+  const cartes = await host.getByRole('button', { name: /appuie pour poser/i }).count();
+  if (cartes !== 32) throw new Error(`${cartes / 4} cartes en main, attendu 8`);
   ok('la main est passee de 10 a 8 cartes');
 
   if (erreurs.length > 0) throw new Error(`erreurs de page :\n${erreurs.join('\n')}`);

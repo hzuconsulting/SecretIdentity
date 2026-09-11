@@ -9,15 +9,20 @@ import {
   defaultRng,
   generateGameCode,
   type Ack,
+  type RelaySnapshot,
   type SessionPayload,
 } from '@identite-secrete/shared';
-import { peerIdForCode } from '@/lib/config';
+import {
+  GUEST_SILENCE_TIMEOUT_MS,
+  peerIdForCode,
+} from '@/lib/config';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { PeerUnavailableError, openPeer } from './peer';
 import { clearHostedGame, loadHostedGame, saveHostedGame } from './hostStorage';
 import { encodeMessage, parseClientMessage, type HostMessage } from './protocol';
 import { watchIce } from './iceInfo';
 import { recordAttempt } from './connectionLog';
+import { keepScreenAwake } from './wakeLock';
 
 /**
  * Le nœud qui héberge la partie.
@@ -49,35 +54,84 @@ const CODE_ATTEMPTS = 6;
  */
 const TICK_INTERVAL_MS = 1_000;
 
+/**
+ * Reculs entre deux tentatives de reprise de l'identifiant de signalisation.
+ *
+ * Un pair détruit par une erreur réseau ne se répare pas : il faut en rouvrir
+ * un, sous le même identifiant. Sans cette échelle, une coupure de quelques
+ * secondes chez l'hôte mettait fin à la partie — plus personne ne pouvait le
+ * joindre, et lui-même ne s'en apercevait pas.
+ *
+ * La série couvre un peu plus de deux minutes, soit le temps d'un tunnel ou
+ * d'un passage du Wi-Fi à la 4G.
+ */
+const RECOVERY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000];
+
+/**
+ * Regroupement des diffusions d'instantané.
+ *
+ * Une manche produit plusieurs diffusions d'état par seconde. L'instantané, lui,
+ * ne change réellement qu'à des moments rares — une manche se règle, quelqu'un
+ * arrive ou part. Le regrouper évite d'envoyer une vingtaine de kilo-octets à
+ * chaque joueur pour rien.
+ *
+ * Le plancher est ce qui compte le plus : il garantit qu'aucune rafale
+ * d'événements ne peut transformer l'instantané en flux.
+ */
+const RELAY_DEBOUNCE_MS = 2_000;
+const RELAY_MIN_INTERVAL_MS = 5_000;
+
 export class HostNode implements GameNode {
   readonly hosting = true;
 
   private readonly events = new NodeEvents();
   private readonly connections = new Map<string, DataConnection>();
+  /** Dernier signe de vie de chaque invité, battements compris. */
+  private readonly lastSeen = new Map<string, number>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private detachWindow: (() => void) | null = null;
+  private releaseScreen: (() => void) | null = null;
+  private recovering = false;
+
+  private relayTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastRelayAt = 0;
 
   private constructor(
     readonly code: string,
-    private readonly peer: Peer,
+    private peer: Peer,
     private readonly host: GameHost,
   ) {
     this.host.setEmitListener((connectionId, event, payload) => {
       this.deliver(connectionId, event, payload);
     });
 
-    this.peer.on('connection', (connection) => this.accept(connection));
-    this.peer.on('error', (error) => this.onPeerError(error));
-    this.peer.on('disconnected', () => {
-      // Le canal de signalisation est tombé : les parties WebRTC déjà ouvertes
-      // continuent, mais plus personne ne peut nous rejoindre. On se réenregistre.
-      if (!this.peer.destroyed) this.peer.reconnect();
-    });
+    this.wirePeer();
 
     this.events.setStatus('online');
     this.startTicking();
     this.watchWindow();
+    // L'écran de l'hôte doit rester allumé : c'est lui qui fait tourner la partie.
+    this.releaseScreen = keepScreenAwake();
+  }
+
+  /**
+   * Branche les écouteurs sur le pair courant.
+   *
+   * Séparé du constructeur parce que le pair n'est plus immuable : une erreur
+   * fatale le détruit, et on en rouvre alors un autre sous le même identifiant
+   * — qu'il faut rebrancher à l'identique (voir `recoverPeer`).
+   */
+  private wirePeer(): void {
+    const peer = this.peer;
+
+    peer.on('connection', (connection) => this.accept(connection));
+    peer.on('error', (error) => this.onPeerError(error));
+    peer.on('disconnected', () => {
+      // Le canal de signalisation est tombé : les parties WebRTC déjà ouvertes
+      // continuent, mais plus personne ne peut nous rejoindre. On se réenregistre.
+      if (!peer.destroyed) peer.reconnect();
+    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -149,6 +203,53 @@ export class HostNode implements GameNode {
     return new HostNode(code, peer, host);
   }
 
+  /**
+   * Reprend une partie dont l'hôte a disparu.
+   *
+   * L'ordre est celui qui limite les dégâts d'un échec à mi-chemin :
+   *
+   * 1. **réserver l'identifiant d'abord**. Tant qu'il n'est pas à nous, rien
+   *    n'a eu lieu : si un autre joueur nous a devancés, on échoue proprement
+   *    et on repart en invité, sans avoir touché à quoi que ce soit.
+   * 2. **construire le moteur ensuite**, ce qui incrémente la génération.
+   * 3. **sauvegarder enfin**, pour que la partie survive à un rechargement de
+   *    notre propre onglet dans la foulée.
+   *
+   * Deux tentatives seulement pour la réservation, là où un rafraîchissement
+   * de page en utilise cinq : s'il est pris, c'est qu'un autre joueur héberge
+   * désormais, et insister couperait la partie en deux.
+   */
+  static async adopt(
+    snapshot: RelaySnapshot,
+    selfPlayerId?: string,
+  ): Promise<HostNode> {
+    const peer = await claimWithRetry(peerIdForCode(snapshot.code), 2);
+
+    let host: GameHost;
+    try {
+      host = await GameHost.adopt(snapshot, {
+        ...(selfPlayerId ? { selfPlayerId } : {}),
+      });
+    } catch (cause) {
+      // Le moteur n'a pas pu être reconstruit : on rend l'identifiant plutôt
+      // que de le retenir en servant une partie qui n'existe pas.
+      peer.destroy();
+      throw cause;
+    }
+
+    const node = new HostNode(snapshot.code, peer, host);
+    node.persistNow();
+
+    recordAttempt({
+      role: 'hôte',
+      code: snapshot.code,
+      outcome: 'réussi',
+      detail: `partie reprise (génération ${snapshot.epoch + 1})`,
+    });
+
+    return node;
+  }
+
   // ─────────────────────────────────────────────────────────
   //  Interface GameNode
   // ─────────────────────────────────────────────────────────
@@ -197,6 +298,7 @@ export class HostNode implements GameNode {
 
     connection.on('open', () => {
       this.connections.set(id, connection);
+      this.lastSeen.set(id, Date.now());
       this.host.connect(id);
       recordAttempt({
         role: 'hôte',
@@ -214,6 +316,14 @@ export class HostNode implements GameNode {
       // rester connecté le temps de rafraîchir.
       if (!message) return;
 
+      // Tout ce qui arrive vaut signe de vie, battement ou action.
+      this.lastSeen.set(id, Date.now());
+
+      if (message.t === 'ping') {
+        this.send(connection, { t: 'pong', at: message.at });
+        return;
+      }
+
       void this.host.dispatch(id, message.event, message.payload).then((ack) => {
         this.send(connection, { t: 'res', id: message.id, ack });
       });
@@ -224,13 +334,48 @@ export class HostNode implements GameNode {
   }
 
   private drop(id: string): void {
+    this.lastSeen.delete(id);
     if (!this.connections.delete(id)) return;
     void this.host.disconnect(id, 'canal fermé').then(() => this.schedulePersist());
   }
 
+  /**
+   * Ferme les canaux devenus muets.
+   *
+   * Un canal WebRTC ne signale pas toujours sa mort : il arrive qu'il reste
+   * « ouvert » du point de vue du navigateur alors que plus rien ne circule.
+   * Sans ce balayage, l'hôte gardait indéfiniment un joueur fantôme comme
+   * connecté — la partie l'attendait pour changer de phase, et le moteur ne
+   * déclenchait jamais sa période de grâce.
+   *
+   * On se contente de fermer le canal : le reste du chemin est celui d'une
+   * déconnexion ordinaire, période de grâce du moteur comprise.
+   */
+  private sweepSilent(now: number): void {
+    for (const [id, seen] of this.lastSeen) {
+      if (now - seen <= GUEST_SILENCE_TIMEOUT_MS) continue;
+
+      const connection = this.connections.get(id);
+      recordAttempt({
+        role: 'hôte',
+        code: this.code,
+        outcome: 'échec',
+        detail: `invité muet depuis ${Math.round((now - seen) / 1_000)} s`,
+      });
+
+      // `close` déclenche l'écouteur posé dans `accept`, donc `drop`. Si le
+      // canal a déjà disparu, on nettoie nous-mêmes.
+      if (connection) connection.close();
+      else this.drop(id);
+    }
+  }
+
   /** Route un message sortant du moteur vers le bon canal. */
   private deliver(connectionId: string, event: string, payload: unknown): void {
-    if (event === SERVER_EVENTS.stateUpdate) this.schedulePersist();
+    if (event === SERVER_EVENTS.stateUpdate) {
+      this.schedulePersist();
+      this.scheduleRelay();
+    }
 
     if (connectionId === LOCAL) {
       this.events.dispatch(event, payload);
@@ -257,7 +402,79 @@ export class HostNode implements GameNode {
     // `peer-unavailable` signale qu'un invité a cherché un identifiant absent :
     // ça ne concerne pas notre partie et ne doit pas la faire basculer hors ligne.
     if (error.type === 'peer-unavailable') return;
+
     this.events.setStatus('offline');
+    void this.recoverPeer();
+  }
+
+  /**
+   * Rouvre un pair sous le même identifiant, après une erreur fatale.
+   *
+   * PeerJS détruit le pair sur ce genre d'erreur, et un pair détruit ne se
+   * répare pas : `reconnect()` n'y peut rien. Sans cette reprise, une coupure
+   * réseau de quelques secondes chez l'hôte rendait la partie définitivement
+   * injoignable — les canaux déjà ouverts survivaient parfois, mais plus
+   * personne ne pouvait revenir, et l'hôte n'avait aucun moyen de s'en rendre
+   * compte.
+   *
+   * L'identifiant étant le code de la partie, le reprendre suffit : les invités
+   * recomposent le même numéro et retombent sur nous.
+   */
+  private async recoverPeer(): Promise<void> {
+    if (this.recovering) return;
+    this.recovering = true;
+
+    try {
+      for (const wait of RECOVERY_DELAYS_MS) {
+        await delay(wait);
+        if (this.events.status === 'closed') return;
+        // Un retour au premier plan a pu rétablir le pair entre-temps.
+        if (!this.peer.destroyed && this.peer.open) {
+          this.events.setStatus('online');
+          return;
+        }
+
+        try {
+          // Deux tentatives seulement : s'il est pris, c'est qu'un autre nœud
+          // héberge désormais la partie, et insister la casserait en deux.
+          const peer = await claimWithRetry(peerIdForCode(this.code), 2);
+          this.adoptPeer(peer);
+          return;
+        } catch {
+          // Courtier injoignable ou identifiant pris : on attend le recul suivant.
+        }
+      }
+
+      recordAttempt({
+        role: 'hôte',
+        code: this.code,
+        outcome: 'échec',
+        detail: 'reprise de l’identifiant abandonnée',
+      });
+    } finally {
+      this.recovering = false;
+    }
+  }
+
+  /** Remplace le pair courant par un pair fraîchement réservé. */
+  private adoptPeer(peer: Peer): void {
+    const previous = this.peer;
+    this.peer = peer;
+    this.wirePeer();
+
+    if (!previous.destroyed) previous.destroy();
+
+    // Les canaux de l'ancien pair sont morts avec lui. On les oublie pour que
+    // le moteur ouvre leur période de grâce ; les invités redemandent le code.
+    for (const id of [...this.connections.keys()]) this.drop(id);
+
+    this.events.setStatus('online');
+    recordAttempt({
+      role: 'hôte',
+      code: this.code,
+      outcome: 'réussi',
+      detail: 'identifiant repris après coupure',
+    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -285,8 +502,57 @@ export class HostNode implements GameNode {
     });
   }
 
+  /**
+   * Programme la diffusion de l'instantané de reprise.
+   *
+   * Branché sur le même signal que la sauvegarde — toute diffusion d'état —
+   * mais avec une cadence bien plus lâche, pour deux raisons : l'instantané
+   * pèse mille fois plus qu'une vue, et son contenu ne change qu'à des moments
+   * rares. En pratique on en observe une poignée sur une partie entière, pas un
+   * flux.
+   *
+   * Le plancher garantit qu'aucune rafale — la révélation des résultats, par
+   * exemple — ne peut le transformer en flux.
+   */
+  private scheduleRelay(): void {
+    if (this.relayTimer) return;
+
+    const sinceLast = Date.now() - this.lastRelayAt;
+    const wait = Math.max(RELAY_DEBOUNCE_MS, RELAY_MIN_INTERVAL_MS - sinceLast);
+
+    this.relayTimer = setTimeout(() => {
+      this.relayTimer = null;
+      void this.relayNow();
+    }, wait);
+  }
+
+  /**
+   * Construit et envoie l'instantané à tous les invités connectés.
+   *
+   * `LOCAL` est exclu de la file de succession : elle répond à « qui reprend si
+   * **je** disparais », et l'hôte ne peut pas être son propre successeur. Le
+   * moteur ne sait pas lequel des joueurs est local — `game.hostId` désigne
+   * l'hôte du salon, pas celui du moteur — donc c'est ici qu'on le lui dit.
+   */
+  private async relayNow(): Promise<void> {
+    if (this.events.status === 'closed') return;
+    this.lastRelayAt = Date.now();
+
+    try {
+      await this.host.relay(this.code, LOCAL);
+    } catch (cause) {
+      // `crypto.subtle` absent (contexte non sécurisé), ou instantané
+      // impossible à construire. La partie continue : on perd seulement la
+      // possibilité qu'un autre joueur la reprenne.
+      console.warn('Instantané de reprise impossible', cause);
+    }
+  }
+
   private startTicking(): void {
-    this.tickTimer = setInterval(() => void this.host.tickAll(), TICK_INTERVAL_MS);
+    this.tickTimer = setInterval(() => {
+      this.sweepSilent(Date.now());
+      void this.host.tickAll();
+    }, TICK_INTERVAL_MS);
   }
 
   /**
@@ -317,14 +583,20 @@ export class HostNode implements GameNode {
   private stop(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (this.tickTimer) clearInterval(this.tickTimer);
+    if (this.relayTimer) clearTimeout(this.relayTimer);
     this.saveTimer = null;
     this.tickTimer = null;
+    this.relayTimer = null;
 
     this.detachWindow?.();
     this.detachWindow = null;
 
+    this.releaseScreen?.();
+    this.releaseScreen = null;
+
     for (const connection of this.connections.values()) connection.close();
     this.connections.clear();
+    this.lastSeen.clear();
 
     this.host.close();
     this.peer.destroy();

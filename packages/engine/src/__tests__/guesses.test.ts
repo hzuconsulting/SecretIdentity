@@ -8,7 +8,13 @@ import {
   type PlayerView,
   type Slot,
 } from '@identite-secrete/shared';
-import { TestClient, startTestServer, type TestHost } from './helpers';
+import {
+  TestClient,
+  hostPlaysToTheEnd,
+  startTestServer,
+  waitForRoundEnd,
+  type TestHost,
+} from './helpers';
 
 /**
  * Vote, scores et rejouer.
@@ -39,7 +45,7 @@ async function placeTwo(client: TestClient): Promise<void> {
   await client.emit(CLIENT_EVENTS.submitClues, {
     placed: hand.slice(0, 2).map((card) => ({
       cardId: card.id,
-      iconId: card.front,
+      iconId: card.front[0],
       zone: 'green' as const,
     })),
   });
@@ -404,7 +410,7 @@ describe('scores', () => {
       });
     }
 
-    await host.waitForView((v) => v.phase === 'SCOREBOARD', 'classement', 8_000);
+    await waitForRoundEnd(host, 1, 8_000);
     await host.emit(CLIENT_EVENTS.nextRound, {});
 
     for (const client of players) {
@@ -425,16 +431,21 @@ describe('scores', () => {
       });
     }
 
-    // Les manches 3 et 4 se jouent toutes seules, sans vote : aucun point de plus.
-    const final = await host.waitForView(
-      (v) => v.phase === 'FINAL_RESULTS',
-      'fin de partie',
-      25_000,
-    );
+    // Les manches 3 et 4 se jouent sans vote : aucun point de plus. L'hôte n'a
+    // qu'à enchaîner à chaque fin de manche.
+    const final = await hostPlaysToTheEnd(host);
 
     expect(final.roundNumber).toBe(TOTAL_ROUNDS);
     expect(final.standings?.every((line) => line.cumulative === 8)).toBe(true);
     expect(final.stats?.bestDetective?.correctGuesses).toBe(4);
+
+    // Le détail de fin de partie porte sur **toute** la partie : deux manches
+    // parfaites à trois joueurs, soit +2 / +2 chacune. Il affichait +0 partout.
+    for (const line of final.standings ?? []) {
+      expect(line.given, `${line.nickname} fait deviner`).toBe(4);
+      expect(line.guessed, `${line.nickname} bonnes réponses`).toBe(4);
+      expect(line.total).toBe(line.cumulative);
+    }
   });
 
   it('départage les ex æquo aux cartes restantes', async () => {
@@ -442,7 +453,7 @@ describe('scores', () => {
     const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
 
     // Personne ne vote : tout le monde finit la manche à égalité de points.
-    await host.waitForView((v) => v.phase === 'SCOREBOARD', 'classement', 8_000);
+    await waitForRoundEnd(host, 1, 8_000);
 
     // Sarah a dépensé 2 cartes comme les autres ; on creuse l'écart à la manche
     // 2 en lui en faisant poser 3 et à Allan une seule.
@@ -460,7 +471,7 @@ describe('scores', () => {
       await client.emit(CLIENT_EVENTS.submitClues, {
         placed: hand.slice(0, count).map((card) => ({
           cardId: card.id,
-          iconId: card.front,
+          iconId: card.front[0],
           zone: 'green' as const,
         })),
       });
@@ -486,22 +497,50 @@ describe('scores', () => {
     expect(cardsOf('Malo')).toBe(STARTING_HAND_CARDS - 4);
 
     // Le classement, à égalité de points, place Allan devant.
-    const scoreboard = await allan.waitForView(
-      (v) => v.phase === 'SCOREBOARD' && v.roundNumber === 2,
-      'classement 2',
-      8_000,
-    );
-    const order = scoreboard.standings?.map((line) => line.nickname);
+    const results = await waitForRoundEnd(allan, 2, 8_000);
+    const order = results.roundScores?.map((line) => line.nickname);
     expect(order).toEqual(['Allan', 'Malo', 'Sarah']);
+  });
+
+  it('détaille, pour chaque joueur, ce que chacun a voté pour lui', async () => {
+    const { code, players } = await playingGame();
+    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+    const sarahId = host.session!.playerId;
+    const allanId = allan.session!.playerId;
+    const maloId = malo.session!.playerId;
+
+    const truth = await perfectVotes(code, host);
+    const decoy = await decoySlot(code);
+
+    // Sarah voit juste pour Allan et tombe sur un leurre pour Malo. Les deux
+    // autres ne votent pas : leurs cases vides doivent apparaître aussi.
+    await host.emit(CLIENT_EVENTS.submitGuesses, {
+      votes: { [allanId]: truth[allanId]!, [maloId]: decoy },
+    });
+
+    const view = await waitForRoundEnd(malo, 1, 8_000);
+    const revealOf = (playerId: string) =>
+      view.reveals?.find((reveal) => reveal.playerId === playerId);
+
+    // Dans l'ordre du salon, le joueur révélé exclu de ses propres votants.
+    expect(revealOf(allanId)?.votes).toEqual([
+      { playerId: sarahId, nickname: 'Sarah', slot: truth[allanId], correct: true },
+      { playerId: maloId, nickname: 'Malo', slot: null, correct: false },
+    ]);
+    expect(revealOf(maloId)?.votes).toEqual([
+      { playerId: sarahId, nickname: 'Sarah', slot: decoy, correct: false },
+      { playerId: allanId, nickname: 'Allan', slot: null, correct: false },
+    ]);
+    expect(revealOf(sarahId)?.votes.map((vote) => vote.playerId)).toEqual([allanId, maloId]);
   });
 });
 
 // ─────────────────────────────────────────────────────────────
 
 describe('rejouer', () => {
-  /** Laisse les 4 manches se dérouler sans intervention. */
+  /** Laisse les 4 manches se dérouler, l'hôte enchaînant à chaque fin de manche. */
   async function playToTheEnd(host: TestClient): Promise<void> {
-    await host.waitForView((v) => v.phase === 'FINAL_RESULTS', 'fin de partie', 25_000);
+    await hostPlaysToTheEnd(host);
   }
 
   it('remet les scores à zéro, redistribue les mains et revient au salon', async () => {

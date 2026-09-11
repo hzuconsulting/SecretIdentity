@@ -73,6 +73,8 @@ export function createGame({
     createdAt: now,
     lastActivityAt: now,
     pausedAt: null,
+    // Première génération : cette partie n'a encore jamais changé d'hôte.
+    epoch: 0,
   };
 }
 

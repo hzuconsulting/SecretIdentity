@@ -70,9 +70,9 @@ export const DEFAULT_SETTINGS: Settings = {
 /**
  * Minimums par catégorie sur les pictogrammes d'une main.
  *
- * Une main de 10 cartes porte 20 pictogrammes : ces quotas s'appliquent à
- * l'ensemble, pour qu'aucun joueur ne se retrouve avec vingt symboles abstraits
- * et rien de concret.
+ * Une main de 10 cartes porte 40 pictogrammes : ces quotas s'appliquent à
+ * l'ensemble, pour qu'aucun joueur ne se retrouve avec une main de symboles
+ * abstraits et rien de concret.
  */
 export const HAND_CATEGORY_QUOTAS = {
   symbole: 2,
@@ -92,12 +92,13 @@ export const HAND_CATEGORY_QUOTAS = {
  * personnages du plateau en même temps que le sien.
  */
 export const IDENTITY_REVEAL_MS = 8_000;
-/** Intervalle entre deux révélations séquentielles en phase RESULTS. */
+/**
+ * Intervalle entre deux révélations séquentielles en phase RESULTS.
+ *
+ * C'est une mise en scène côté écran, pas une échéance : la phase RESULTS n'a
+ * pas de minuteur, et c'est l'hôte qui lance la manche suivante.
+ */
 export const REVEAL_STEP_MS = 1_500;
-/** Marge après la dernière révélation avant de passer au classement. */
-export const RESULTS_TAIL_MS = 3_000;
-/** Démarrage automatique de la manche suivante depuis le classement. */
-export const SCOREBOARD_AUTO_NEXT_MS = 20_000;
 /** Période de grâce après une déconnexion avant retrait effectif. */
 export const DISCONNECT_GRACE_MS = 60_000;
 /** Délai avant transfert automatique du rôle d'hôte. */

@@ -2,14 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BOARD_SIZE,
   CLIENT_EVENTS,
+  ICONS_PER_CARD,
   MAX_PICTOS,
   STARTING_HAND_CARDS,
+  cardIcons,
   type PictoCard,
   type PictoZone,
   type PlacedPicto,
   type PlayerView,
 } from '@identite-secrete/shared';
-import { TestClient, containsValue, startTestServer, type TestHost } from './helpers';
+import {
+  TestClient,
+  containsValue,
+  startTestServer,
+  waitForRoundEnd,
+  type TestHost,
+} from './helpers';
 
 /**
  * Remplissage du boîtier : cartes Picto, faces, zones.
@@ -74,12 +82,12 @@ function handOf(client: TestClient): PictoCard[] {
 
 /** Les deux faces de toutes les cartes d'une main. */
 function facesOf(client: TestClient): string[] {
-  return handOf(client).flatMap((card) => [card.front, card.back]);
+  return handOf(client).flatMap(cardIcons);
 }
 
 /** Un boîtier valide construit depuis les premières cartes de la main. */
 function place(cards: PictoCard[], count: number, zone: PictoZone = 'green'): PlacedPicto[] {
-  return cards.slice(0, count).map((card) => ({ cardId: card.id, iconId: card.front, zone }));
+  return cards.slice(0, count).map((card) => ({ cardId: card.id, iconId: card.front[0], zone }));
 }
 
 beforeEach(async () => {
@@ -104,13 +112,16 @@ describe('distribution des cartes Picto', () => {
       expect(hand).toHaveLength(STARTING_HAND_CARDS);
 
       for (const card of hand) {
-        expect(card.front).not.toBe(card.back);
+        // Deux faces de deux pictogrammes, tous différents.
+        expect(card.front).toHaveLength(2);
+        expect(card.back).toHaveLength(2);
+        expect(new Set(cardIcons(card)).size).toBe(ICONS_PER_CARD);
       }
 
       // Les identifiants de cartes sont uniques dans la main.
       expect(new Set(hand.map((card) => card.id)).size).toBe(STARTING_HAND_CARDS);
       // Et aucun pictogramme n'apparaît deux fois, même sur deux cartes.
-      expect(new Set(facesOf(client)).size).toBe(STARTING_HAND_CARDS * 2);
+      expect(new Set(facesOf(client)).size).toBe(STARTING_HAND_CARDS * ICONS_PER_CARD);
     }
   });
 });
@@ -136,8 +147,8 @@ describe('soumission valide', () => {
     const hand = handOf(host);
 
     const chosen: PlacedPicto[] = [
-      { cardId: hand[0]!.id, iconId: hand[0]!.front, zone: 'green' },
-      { cardId: hand[1]!.id, iconId: hand[1]!.back, zone: 'red' },
+      { cardId: hand[0]!.id, iconId: hand[0]!.front[0], zone: 'green' },
+      { cardId: hand[1]!.id, iconId: hand[1]!.back[1], zone: 'red' },
     ];
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, { placed: chosen });
@@ -145,6 +156,23 @@ describe('soumission valide', () => {
 
     const view = await host.waitForView((v) => v.yourCluesSubmitted === true, 'boîtier validé');
     expect(view.yourPlaced).toEqual(chosen);
+  });
+
+  it('accepte n’importe lequel des quatre pictogrammes d’une carte, recto ou verso', async () => {
+    const { players } = await startedGame();
+    const host = players[0]!;
+    const hand = handOf(host);
+
+    // Trois cartes, trois positions différentes : second pictogramme du recto,
+    // premier du verso, second du verso.
+    const chosen: PlacedPicto[] = [
+      { cardId: hand[0]!.id, iconId: hand[0]!.front[1], zone: 'green' },
+      { cardId: hand[1]!.id, iconId: hand[1]!.back[0], zone: 'green' },
+      { cardId: hand[2]!.id, iconId: hand[2]!.back[1], zone: 'red' },
+    ];
+
+    const response = await host.emit(CLIENT_EVENTS.submitClues, { placed: chosen });
+    expect(response.ok).toBe(true);
   });
 
   it('affiche la progression aux autres, sans révéler les pictogrammes', async () => {
@@ -157,7 +185,7 @@ describe('soumission valide', () => {
     // ferait échouer ce test au hasard du tirage.
     const allanFaces = new Set(facesOf(allan));
     const usable = handOf(host).filter(
-      (card) => !allanFaces.has(card.front) && !allanFaces.has(card.back),
+      (card) => cardIcons(card).every((icon) => !allanFaces.has(icon)),
     );
     expect(usable.length, 'au moins deux cartes inconnues d’Allan').toBeGreaterThanOrEqual(2);
 
@@ -235,6 +263,11 @@ describe('la main s’épuise', () => {
 
     await host.emit(CLIENT_EVENTS.submitClues, { placed: played });
 
+    // La manche 1 se conclut, puis l'hôte enchaîne : il n'y a plus de minuteur
+    // après la révélation.
+    await waitForRoundEnd(host, 1, 20_000);
+    await host.emit(CLIENT_EVENTS.nextRound, {});
+
     // On attend la manche 2, où la main est plus courte.
     await host.waitForView(
       (v) => v.phase === 'CLUE_SELECTION' && v.roundNumber === 2,
@@ -280,7 +313,7 @@ describe('validation anti-triche', () => {
     const host = players[0]!;
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
-      placed: [{ cardId: 'carte-inventee', iconId: handOf(host)[0]!.front, zone: 'green' }],
+      placed: [{ cardId: 'carte-inventee', iconId: handOf(host)[0]!.front[0], zone: 'green' }],
     });
 
     expect(response.ok).toBe(false);
@@ -293,7 +326,7 @@ describe('validation anti-triche', () => {
     const foreign = handOf(allan)[0]!;
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
-      placed: [{ cardId: foreign.id, iconId: foreign.front, zone: 'green' }],
+      placed: [{ cardId: foreign.id, iconId: foreign.front[0], zone: 'green' }],
     });
 
     expect(response.ok).toBe(false);
@@ -308,7 +341,7 @@ describe('validation anti-triche', () => {
     // La face d'une autre carte de sa propre main : elle lui appartient, mais
     // une carte ne peut montrer que l'un de ses deux pictogrammes.
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
-      placed: [{ cardId: hand[0]!.id, iconId: hand[1]!.front, zone: 'green' }],
+      placed: [{ cardId: hand[0]!.id, iconId: hand[1]!.front[0], zone: 'green' }],
     });
 
     expect(response.ok).toBe(false);
@@ -345,8 +378,8 @@ describe('validation anti-triche', () => {
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
       placed: [
-        { cardId: card.id, iconId: card.front, zone: 'green' },
-        { cardId: card.id, iconId: card.back, zone: 'red' },
+        { cardId: card.id, iconId: card.front[0], zone: 'green' },
+        { cardId: card.id, iconId: card.back[0], zone: 'red' },
       ],
     });
 
@@ -359,7 +392,7 @@ describe('validation anti-triche', () => {
     const card = handOf(players[0]!)[0]!;
 
     const response = await players[0]!.emit(CLIENT_EVENTS.submitClues, {
-      placed: [{ cardId: card.id, iconId: card.front, zone: 'bleu' }],
+      placed: [{ cardId: card.id, iconId: card.front[0], zone: 'bleu' }],
     });
 
     expect(response.ok).toBe(false);
@@ -459,7 +492,7 @@ describe('validation automatique en fin de minuteur', () => {
       const picto = assignment.placed[0]!;
       const card = before.get(playerId)!.find((candidate) => candidate.id === picto.cardId);
       expect(card, 'carte issue de sa propre main').toBeDefined();
-      expect([card!.front, card!.back]).toContain(picto.iconId);
+      expect(cardIcons(card!)).toContain(picto.iconId);
     }
   });
 

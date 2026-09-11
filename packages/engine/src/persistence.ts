@@ -31,14 +31,23 @@ import { PHASES } from '@identite-secrete/shared';
  */
 
 /**
- * Version 2 : plateau de huit personnages, numéros secrets, mains persistantes.
+ * Version 4 : la version 3, avec des cartes Picto à quatre pictogrammes.
  *
- * Une sauvegarde de version 1 décrivait un jeu qui n'existe plus (une identité
- * par joueur, une main par manche, des étiquettes anonymes). On la **refuse**
- * plutôt que de tenter une migration : l'hôte repart du salon, ce qui est bien
- * préférable à une partie à moitié convertie.
+ * Une carte portait un pictogramme par face ; elle en porte désormais deux par
+ * face, comme dans la boîte. Une main sauvegardée à l'ancienne forme ferait
+ * planter l'écran de pose : on la refuse, comme toute version antérieure.
+ *
+ * Une sauvegarde d'une version antérieure est **refusée**, jamais convertie :
+ * l'hôte repart du salon, ce qui est bien préférable à une partie à moitié
+ * convertie. La version 1 décrivait d'ailleurs un jeu qui n'existe plus (une
+ * identité par joueur, une main par manche, des étiquettes anonymes).
+ *
+ * La version 3 ajoute `epoch`. Le champ pourrait être toléré absent, mais une
+ * sauvegarde sans génération vient d'un onglet qui ignore la migration : le
+ * laisser reprendre la main risquerait de faire ressusciter un état périmé
+ * après une reprise, exactement ce que la génération est là pour empêcher.
  */
-export const PERSISTENCE_VERSION = 2;
+export const PERSISTENCE_VERSION = 4;
 
 export interface SerializedGame {
   version: typeof PERSISTENCE_VERSION;
@@ -56,6 +65,7 @@ export interface SerializedGame {
   createdAt: number;
   lastActivityAt: number;
   pausedAt: number | null;
+  epoch: number;
 }
 
 export function serializeGame(game: Game): SerializedGame {
@@ -89,6 +99,7 @@ export function serializeGame(game: Game): SerializedGame {
     createdAt: game.createdAt,
     lastActivityAt: game.lastActivityAt,
     pausedAt: game.pausedAt,
+    epoch: game.epoch,
   };
 }
 
@@ -156,6 +167,7 @@ export function deserializeGame(raw: unknown): Game | null {
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     lastActivityAt: typeof raw.lastActivityAt === 'number' ? raw.lastActivityAt : Date.now(),
     pausedAt: typeof raw.pausedAt === 'number' ? raw.pausedAt : null,
+    epoch: typeof raw.epoch === 'number' && raw.epoch >= 0 ? raw.epoch : 0,
   };
 }
 

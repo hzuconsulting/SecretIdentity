@@ -34,9 +34,9 @@ npm run typecheck   # tsc --noEmit sur shared, engine et client
 - `dealHand` : taille exacte, aucun doublon, quotas respectés sur **50 graines**,
   déterminisme à graine égale, divergence à graines différentes, échec franc sur
   catalogue trop petit
-- `dealPictoCards` : 10 cartes à deux faces distinctes, aucun pictogramme répété dans une
-  main, identifiants préfixés par joueur, déterminisme, échec franc sur catalogue trop
-  petit
+- `dealPictoCards` : 10 cartes à deux faces de deux pictogrammes, aucun pictogramme
+  répété dans une main (40 distincts), identifiants préfixés par joueur, déterminisme,
+  échec franc sur catalogue trop petit
 - le catalogue suffit aux règles : assez de personnages pour 4 manches × 8 dans **chaque**
   difficulté, assez de pictogrammes pour huit mains complètes
 - `drawIdentities` : identités distinctes, filtre de difficulté, non-réutilisation sur
@@ -96,8 +96,9 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
   distincts et dans les bornes, aucun personnage réutilisé d'une manche à l'autre
 - *transitions* : `IDENTITY_REVEAL → CLUE_SELECTION` automatique et annoncée dans cet
   ordre, échéance cohérente avec l'horloge de l'hôte, **échéance identique pour tous les
-  joueurs**, pas d'échéance au salon, `round:next` par l'hôte depuis le classement,
-  `round:next` refusé hors phase et pour un non-hôte, partie complète de **4 manches**
+  joueurs**, pas d'échéance au salon, **la révélation n'a pas d'échéance** et attend
+  l'hôte, `round:next` enchaîne directement sur la manche suivante, `round:next` refusé
+  avant la fin de manche et pour un non-hôte, partie complète de **4 manches**
   jusqu'à `FINAL_RESULTS` avec classement et statistiques
 - *confidentialité en manche* : le plateau est public — c'est la règle — mais un joueur ne
   reçoit **que son propre numéro**, et aucune vue ne porte `reveals` avant `RESULTS` ;
@@ -110,8 +111,9 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 
 **`clues.test.ts`** — intégration, remplissage et validation du boîtier.
 
-- *distribution* : 10 cartes par joueur, deux pictogrammes distincts par carte,
-  identifiants uniques, aucun pictogramme répété dans une main
+- *distribution* : 10 cartes par joueur, quatre pictogrammes distincts par carte (deux
+  par face), identifiants uniques, aucun pictogramme répété dans une main ; **n'importe
+  lequel des quatre** peut être posé, recto comme verso
 - *soumission valide* : boîtier enregistré et renvoyé au joueur ; mélange vert / rouge
   accepté ; progression visible chez les autres **sans que leurs pictogrammes fuitent**
   (vérifié sur tous les payloads reçus) ; un seul pictogramme accepté ; la phase se
@@ -126,7 +128,7 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 - *idempotence* : deux soumissions identiques (ordre inversé) réussissent sans effet de
   bord ; changer d'avis après validation est refusé ; une soumission arrivée après la
   phase renvoie `TOO_LATE` avec « Trop tard ! »
-- *validation automatique* : une carte de sa propre main est tirée au sort, face comprise,
+- *validation automatique* : une carte de sa propre main est tirée au sort, pictogramme compris,
   pour qui n'a rien posé ; le boîtier de ceux qui avaient validé est conservé ; chaque
   joueur se retrouve avec N−1 boîtiers **non vides** et les 8 numéros
 - *exclusion en cours de manche* : exclure le dernier joueur attendu conclut la phase ; en
@@ -149,7 +151,9 @@ ne les reçoivent jamais.
   sur un leurre ne rapporte rien** ; zéro partout quand personne ne vote ; **cas mixte** —
   Sarah vote juste, Allan inverse ses deux votes, Malo ne vote pas, et chaque colonne est
   vérifiée séparément ; cumul sur les 4 manches jusqu'aux statistiques finales ;
-  **départage aux cartes restantes** vérifié sur un classement réel
+  **départage aux cartes restantes** vérifié sur un classement réel ; **dépouillement
+  des votes** — pour chaque joueur révélé, ce que chacun a voté, juste, faux sur un
+  leurre, ou laissé vide, dans l'ordre du salon
 - *rejouer* : scores remis à zéro, mains redistribuées, retour au salon,
   `usedIdentityIds` **conservé**, refusé hors fin de partie et pour un non-hôte
 
@@ -252,34 +256,36 @@ Trois contextes ouverts, réglages laissés par défaut (5 manches, 60 s / 60 s)
 
 | Étape | Attendu |
 |---|---|
-| L'hôte clique sur `LANCER LA PARTIE` | Les trois écrans basculent ensemble sur « Ton identité » |
-| Comparer les trois écrans | **Trois identités différentes**, chacun ne voit que la sienne |
-| `👁 MASQUER MON IDENTITÉ` | Le nom devient « IDENTITÉ MASQUÉE » ; `Maintenir pour voir` ne l'affiche que pendant l'appui |
-| Passer l'onglet en arrière-plan pendant l'appui | Le nom se recache immédiatement |
-| Après 5 s | Bascule automatique sur « Tes indices », main de 10 icônes visible |
-| Appuyer sur trois icônes | Bordure violette **et** pastilles numérotées 1, 2, 3 ; compteur « 3 / 3 indices sélectionnés » |
-| Appuyer sur une quatrième | Rien ne se passe, les icônes non choisies sont grisées |
-| Réappuyer sur l'icône n° 2 | Elle se désélectionne, la n° 3 devient la n° 2 |
-| `VALIDER MES INDICES` | Demande « Confirmer ces indices ? » avec `MODIFIER` et `CONFIRMER` |
-| `CONFIRMER` | Écran vert « Indices validés ! », liste de progression `Allan ⏳ / Malo ⏳` |
+| L'hôte clique sur `LANCER LA PARTIE` | Les trois écrans basculent ensemble sur « Ta carte Mystère » |
+| Comparer les trois écrans | **Le même plateau de 8 personnages** partout ; **trois numéros différents**, chacun ne voit que le sien |
+| `👁 MASQUER MA CARTE` | Numéro et nom deviennent « CARTE MASQUÉE » ; `Maintenir pour voir` ne les affiche que pendant l'appui |
+| Passer l'onglet en arrière-plan pendant l'appui | La carte se recache immédiatement |
+| Après 8 s | Bascule automatique sur « Ton boîtier », main de **10 cartes, chacune avec un recto et un verso de deux pictogrammes** |
+| Taper un pictogramme | Il passe dans « Ce que tu poses », en vert ; compteur « 1 / 3 » ; les trois autres de sa carte s'estompent |
+| Basculer sur `✗ Ce n’est pas représentatif`, taper une autre carte | Le second pictogramme est posé en rouge |
+| Taper un autre pictogramme d'une carte déjà posée | Le pictogramme posé change, sa zone ne change pas |
+| Taper une quatrième carte | Rien ne se passe, les cartes non posées sont grisées |
+| `VALIDER MON BOÎTIER` | Demande « Confirmer ce boîtier ? » avec le nombre de cartes qui partent à la défausse |
+| `CONFIRMER` | Écran vert « Boîtier validé ! », liste de progression `Allan ⏳ / Malo ⏳` |
 | Les trois joueurs valident | La phase suivante démarre **immédiatement**, sans attendre le décompte |
-| Refaire une manche sans rien choisir chez un joueur | À la fin du décompte, une icône de sa main apparaît quand même dans sa série |
+| Refaire une manche sans rien poser chez un joueur | À la fin du décompte, une carte de sa main apparaît quand même dans son boîtier |
 | Comparer les décomptes | **Même valeur à ± 1 s** sur les trois appareils |
 | Sous 10 s | Le décompte passe au rose, l'icône change de ⏱️ à ⏳, il pulse |
 | À `00:00` | Le décompte reste à zéro, puis la bascule arrive — c'est le moteur qui décide, pas l'écran |
-| Phase « Qui est qui ? » | N−1 séries anonymes **avec les vraies icônes choisies**, la sienne absente ; un sélecteur par série |
-| Choisir la même identité pour deux séries | Les deux affectations **s'échangent**, aucun message d'erreur |
-| Laisser une case vide | `VALIDER MES RÉPONSES` reste désactivé, la légende indique `1 / 2` |
-| Tout remplir puis valider | Écran vert « Réponses envoyées ! » avec le récapitulatif |
-| Ne rien remplir et laisser filer le décompte | Les réponses partent vides, elles comptent comme fausses |
-| Phase « Révélation » | Les séries se dévoilent **une par une**, à 1,5 s d'intervalle |
-| Sur chaque carte | Identité, auteur, icônes numérotées, « 2 joueurs sur 2 ont trouvé », et un badge ✓ Trouvé / ✗ Raté selon ta propre réponse |
-| Après la dernière carte | Le détail des points apparaît : `Faire deviner : +2 · Bonnes réponses : +2` |
-| Phase « Classement » | Podium 🥇🥈🥉, tous à 0 point ; `MANCHE SUIVANTE` chez l'hôte seulement |
-| Attendre 20 s sans rien cliquer | La manche 2 démarre toute seule |
-| Après la dernière manche | Écran de fin, 🏆, classement, trois statistiques |
+| Phase « Qui est qui ? » | Un bloc **par adversaire nommé**, avec son boîtier vert / rouge ; la sienne absente ; un sélecteur de numéro 1→8 |
+| Choisir le même numéro pour deux joueurs | Les deux votes **s'échangent**, aucun message d'erreur |
+| Laisser une case vide | `VALIDER MES VOTES` reste désactivé, la légende indique `1 / 2` |
+| Tout remplir puis valider | Écran vert « Votes envoyés ! » avec le récapitulatif |
+| Ne rien remplir et laisser filer le décompte | Les votes partent vides, ils comptent comme faux |
+| Phase « Révélation » | Les boîtiers se dévoilent **un par un**, à 1,5 s d'intervalle ; `TOUT RÉVÉLER` les montre d'un coup |
+| Sur chaque carte | Numéro et personnage, joueur, pictogrammes vert / rouge, **ce que chacun a voté pour lui** (✓ / ✗, « sans réponse », « (leurre) »), et un badge ✓ Trouvé / ✗ Raté selon ton propre vote |
+| Après la dernière carte | Le détail des points apparaît, avec le total cumulé ; `MANCHE SUIVANTE` chez l'hôte seulement |
+| Attendre une minute sans rien cliquer | **Rien ne bouge** : pas de minuteur après une manche, c'est l'hôte qui enchaîne |
+| L'hôte appuie sur `MANCHE SUIVANTE` | Tout le monde passe directement à la carte Mystère de la manche 2, main réduite des cartes jouées |
+| Dernière manche révélée | Le bouton devient `VOIR LE CLASSEMENT FINAL` |
+| Après la dernière manche | Écran de fin, 🏆, classement avec cartes gardées, trois statistiques |
 | `REJOUER` (hôte) | Retour au salon, tous les scores à zéro, mêmes joueurs et mêmes réglages |
-| Relancer après REJOUER | Les identités de la partie précédente ne réapparaissent pas |
+| Relancer après REJOUER | Mains neuves de 10 cartes ; les personnages de la partie précédente ne réapparaissent pas |
 | `NOUVELLE PARTIE` | Sortie du salon et retour à l'accueil |
 
 **Le contrôle qui compte** : pendant « Tes indices », fais valider un joueur puis ouvre

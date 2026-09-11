@@ -3,9 +3,10 @@ import {
   SERVER_EVENTS,
   type Ack,
   type PlayerView,
+  type RelaySnapshot,
   type SessionPayload,
 } from '@identite-secrete/shared';
-import { GameHost, type GameHostOptions } from '../host';
+import { GameHost, type AdoptOptions, type GameHostOptions } from '../host';
 import type { GameStore } from '../store/GameStore';
 import type { TimerRegistry } from '../timers';
 import { setLogLevel } from '../logger';
@@ -50,17 +51,15 @@ export class TestHost {
   private readonly sinks = new Map<string, Sink>();
   private nextId = 0;
 
-  constructor(options: GameHostOptions = {}) {
-    this.host = new GameHost({
-      disconnectGraceMs: TEST_GRACE_MS,
-      hostTransferDelayMs: TEST_HOST_TRANSFER_MS,
-      timeScale: TEST_TIME_SCALE,
-      enableCleanup: false,
-      ...options,
-      emit: (connectionId, event, payload) => {
-        this.sinks.get(connectionId)?.(event, payload);
-      },
-    });
+  constructor(options: GameHostOptions = {}, adopted?: GameHost) {
+    const emit = (connectionId: string, event: string, payload: unknown) => {
+      this.sinks.get(connectionId)?.(event, payload);
+    };
+
+    this.host = adopted ?? new GameHost({ ...testDefaults(), ...options, emit });
+    // Un nœud construit par `GameHost.adopt` existe avant ce harnais : on lui
+    // rebranche l'aiguillage plutôt que de le reconstruire.
+    if (adopted) this.host.setEmitListener(emit);
   }
 
   get store(): GameStore {
@@ -96,8 +95,33 @@ export class TestHost {
   }
 }
 
+function testDefaults(): GameHostOptions {
+  return {
+    disconnectGraceMs: TEST_GRACE_MS,
+    hostTransferDelayMs: TEST_HOST_TRANSFER_MS,
+    timeScale: TEST_TIME_SCALE,
+    enableCleanup: false,
+  };
+}
+
 export function startTestServer(options: GameHostOptions = {}): TestHost {
   return new TestHost(options);
+}
+
+/**
+ * Un nœud qui **reprend** une partie à partir d'un instantané de relais.
+ *
+ * C'est le nœud d'un joueur qui vient de constater la disparition de l'hôte et
+ * qui prend sa place. Le détour par une fabrique est nécessaire parce que
+ * `GameHost.adopt` est asynchrone : le `TestHost` doit exister avant, pour que
+ * son aiguillage de messages soit branché quand la reprise diffuse.
+ */
+export async function adoptTestServer(
+  snapshot: RelaySnapshot,
+  options: AdoptOptions = {},
+): Promise<TestHost> {
+  const host = await GameHost.adopt(snapshot, { ...testDefaults(), ...options });
+  return new TestHost({}, host);
 }
 
 /**
@@ -240,6 +264,54 @@ export class TestClient {
 }
 
 /** Petite attente explicite, pour laisser une échéance se déclencher. */
+/**
+ * Attend la fin d'une manche précise, révélation affichée.
+ *
+ * Le numéro de manche est indispensable : `waitForView` accepte aussi les vues
+ * déjà reçues, et retrouverait sinon la révélation d'une manche précédente.
+ */
+export function waitForRoundEnd(
+  client: TestClient,
+  roundNumber: number,
+  timeoutMs = 15_000,
+): Promise<PlayerView> {
+  return client.waitForView(
+    (view) => view.phase === 'RESULTS' && view.roundNumber === roundNumber,
+    `révélation de la manche ${roundNumber}`,
+    timeoutMs,
+  );
+}
+
+/**
+ * Laisse la partie se jouer jusqu'au classement final.
+ *
+ * Les phases de jeu se concluent seules, à l'échéance de leur minuteur. La fin
+ * de manche, elle, n'en a plus : c'est l'hôte qui enchaîne. Ce harnais appuie
+ * donc sur « Manche suivante » à chaque fois que la partie l'attend — et rien
+ * d'autre.
+ */
+export async function hostPlaysToTheEnd(
+  host: TestClient,
+  timeoutMs = 25_000,
+): Promise<PlayerView> {
+  const deadline = Date.now() + timeoutMs;
+  let pressedFor = -1;
+
+  for (;;) {
+    const view = host.lastView;
+    if (view.phase === 'FINAL_RESULTS') return view;
+
+    const waitingForHost = view.phase === 'RESULTS' || view.phase === 'SCOREBOARD';
+    if (waitingForHost && !view.paused && pressedFor !== view.roundNumber) {
+      pressedFor = view.roundNumber;
+      await host.emit(CLIENT_EVENTS.nextRound, {});
+    }
+
+    if (Date.now() > deadline) throw new Error('délai dépassé : fin de partie');
+    await wait(20);
+  }
+}
+
 export function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

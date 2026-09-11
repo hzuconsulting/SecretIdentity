@@ -27,6 +27,17 @@ export interface GameStore {
     sessionToken: string,
   ): Promise<{ game: Game; playerId: PlayerId } | undefined>;
 
+  /**
+   * Retrouve une partie à partir de l'**empreinte** d'un jeton.
+   *
+   * Sert après une reprise d'hébergement : le nouvel hôte n'a jamais reçu les
+   * jetons, seulement leurs empreintes. Le joueur présente le sien, on en
+   * calcule l'empreinte, et c'est elle qu'on cherche ici.
+   */
+  findBySessionCommitment(
+    sessionHash: string,
+  ): Promise<{ game: Game; playerId: PlayerId } | undefined>;
+
   /** Supprime les parties inactives depuis plus de `ttlMs`. Retourne les codes purgés. */
   purgeInactive(ttlMs: number, now: number): Promise<string[]>;
 

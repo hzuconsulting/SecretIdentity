@@ -193,7 +193,7 @@ export function GameClient({ code }: { code: string }) {
         return <GuessingScreen view={view} onSubmit={submitVotes} onKick={kickPlayer} />;
 
       case 'RESULTS':
-        return <ResultsScreen view={view} />;
+        return <ResultsScreen view={view} onNextRound={nextRound} />;
 
       case 'SCOREBOARD':
         return <ScoreboardScreen view={view} onNextRound={nextRound} />;

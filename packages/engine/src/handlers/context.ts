@@ -114,7 +114,7 @@ export function createHandlerContext(
   state: ConnectionState,
   deps: HandlerDeps,
 ): HandlerContext {
-  const { emitter, store, timers } = deps;
+  const { store } = deps;
 
   return {
     connectionId: state.id,
@@ -152,17 +152,30 @@ export function createHandlerContext(
       return { game, playerId: binding.playerId };
     },
 
-    async finalize(game: Game, now: number): Promise<void> {
-      if (game.players.size === 0) {
-        deps.engine.cancel(game.code);
-        timers.cancelByPrefix(timerKeys.gamePrefix(game.code));
-        await store.delete(game.code);
-        logger.info(`Partie ${game.code} supprimée (plus aucun joueur)`);
-        return;
-      }
-
-      await store.save(game);
-      broadcastState(emitter, game, now);
-    },
+    finalize: (game: Game, now: number) => finalizeGame(deps, game, now),
   };
+}
+
+/**
+ * Sauvegarde, ou supprime la partie si elle est vide.
+ *
+ * Fonction libre, et pas seulement une méthode du contexte : les échéances
+ * (retrait après grâce, transfert d'hôte) doivent pouvoir l'appeler alors
+ * qu'aucune connexion n'est en jeu — c'est le cas après une reprise
+ * d'hébergement, où les minuteurs sont armés sans que personne n'ait encore
+ * envoyé quoi que ce soit.
+ */
+export async function finalizeGame(deps: HandlerDeps, game: Game, now: number): Promise<void> {
+  const { emitter, store, timers } = deps;
+
+  if (game.players.size === 0) {
+    deps.engine.cancel(game.code);
+    timers.cancelByPrefix(timerKeys.gamePrefix(game.code));
+    await store.delete(game.code);
+    logger.info(`Partie ${game.code} supprimée (plus aucun joueur)`);
+    return;
+  }
+
+  await store.save(game);
+  broadcastState(emitter, game, now);
 }

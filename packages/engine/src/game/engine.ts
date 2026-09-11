@@ -1,8 +1,5 @@
 import {
   IDENTITY_REVEAL_MS,
-  REVEAL_STEP_MS,
-  RESULTS_TAIL_MS,
-  SCOREBOARD_AUTO_NEXT_MS,
   SERVER_EVENTS,
   STARTING_HAND_CARDS,
   TOTAL_ROUNDS,
@@ -185,17 +182,12 @@ export class GameEngine {
       case 'GUESSING':
         return toMs(game.settings.guessSeconds);
 
-      case 'RESULTS': {
-        // La révélation est séquentielle : sa durée dépend du nombre de boîtiers.
-        const round = currentRound(game);
-        const count = round ? round.assignments.size : 0;
-        return count * REVEAL_STEP_MS + RESULTS_TAIL_MS;
-      }
-
+      // Pas d'échéance après une manche : c'est le moment où l'on regarde qui a
+      // voté quoi, qui portait quel personnage, et on en parle. Un minuteur
+      // coupait la conversation au milieu. L'hôte enchaîne quand la table est
+      // prête, via `round:next`.
+      case 'RESULTS':
       case 'SCOREBOARD':
-        // L'hôte peut enchaîner avant, via `round:next`.
-        return SCOREBOARD_AUTO_NEXT_MS;
-
       case 'LOBBY':
       case 'FINAL_RESULTS':
         return null;
@@ -205,7 +197,12 @@ export class GameEngine {
     }
   }
 
-  /** Phase suivante dans le déroulé nominal. `null` = fin de partie. */
+  /**
+   * Phase suivante **à l'intérieur d'une manche**. `null` hors manche.
+   *
+   * Après `RESULTS`, on ne passe pas à une autre phase : on ouvre la manche
+   * suivante — voir `advance`.
+   */
   nextPhase(phase: Phase): Phase | null {
     switch (phase) {
       case 'IDENTITY_REVEAL':
@@ -214,11 +211,20 @@ export class GameEngine {
         return 'GUESSING';
       case 'GUESSING':
         return 'RESULTS';
-      case 'RESULTS':
-        return 'SCOREBOARD';
       default:
         return null;
     }
+  }
+
+  /**
+   * Phases où la manche est terminée et où la partie attend l'hôte.
+   *
+   * `RESULTS` dans le déroulé normal. `SCOREBOARD` n'est plus atteint que par une
+   * reprise après migration d'hôte, qui atterrit sur le classement de la
+   * dernière manche réglée — le même bouton doit y fonctionner.
+   */
+  isBetweenRounds(phase: Phase): boolean {
+    return phase === 'RESULTS' || phase === 'SCOREBOARD';
   }
 
   /**
@@ -233,7 +239,7 @@ export class GameEngine {
 
     const now = Date.now();
 
-    if (game.phase === 'SCOREBOARD') {
+    if (this.isBetweenRounds(game.phase)) {
       await this.openRound(game, now);
       return;
     }

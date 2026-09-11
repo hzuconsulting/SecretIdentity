@@ -7,6 +7,7 @@ import {
   type PlayerRound,
   type PlayerView,
   type PublicPlayer,
+  type RevealedVote,
   type Round,
   type RoundReveal,
 } from '@identite-secrete/shared';
@@ -71,6 +72,9 @@ export function buildPlayerView(
 
   const view: PlayerView = {
     code: game.code,
+    // Génération d'hébergement : permet au client de reconnaître une vue
+    // émise par un hôte périmé et de l'ignorer (D-74).
+    epoch: game.epoch,
     phase: game.phase,
     roundNumber: game.currentRound,
     totalRounds: TOTAL_ROUNDS,
@@ -115,15 +119,17 @@ export function buildPlayerView(
       addBoard(view, round);
       addOwnIdentity(view, round, playerId, mine);
       view.reveals = buildReveals(game, round);
-      view.roundScores = buildStandings(game, round);
+      view.roundScores = buildStandings(game, [round]);
       break;
 
     case 'SCOREBOARD':
-      view.standings = buildStandings(game, round);
+      view.standings = buildStandings(game, [round]);
       break;
 
     case 'FINAL_RESULTS':
-      view.standings = buildStandings(game, null);
+      // Le détail porte sur toute la partie. Construit à partir d'une seule
+      // manche absente, il affichait « +0 » partout sous un total pourtant juste.
+      view.standings = buildStandings(game, game.rounds);
       view.stats = buildStats(game);
       break;
 
@@ -259,9 +265,26 @@ function buildReveals(game: Game, round: Round): RoundReveal[] {
     const owner = game.players.get(playerId);
 
     const guessedByPlayerIds: PlayerId[] = [];
-    for (const [voterId, other] of round.assignments) {
+    const votes: RevealedVote[] = [];
+
+    // Dépouillement des cartes Vote posées devant lui, dans l'ordre d'arrivée
+    // des votants — le même que partout ailleurs à l'écran.
+    for (const voterId of votersInJoinOrder(game, round)) {
       if (voterId === playerId) continue;
-      if (other.votes[playerId] === assignment.slot) guessedByPlayerIds.push(voterId);
+
+      const other = round.assignments.get(voterId);
+      if (!other) continue;
+
+      const slot = other.votes[playerId] ?? null;
+      const correct = slot === assignment.slot;
+      if (correct) guessedByPlayerIds.push(voterId);
+
+      votes.push({
+        playerId: voterId,
+        nickname: game.players.get(voterId)?.nickname ?? 'Joueur parti',
+        slot,
+        correct,
+      });
     }
 
     reveals.push({
@@ -271,6 +294,7 @@ function buildReveals(game: Game, round: Round): RoundReveal[] {
       identityId,
       placed: assignment.placed.map(({ iconId, zone }) => ({ iconId, zone })),
       guessedByPlayerIds,
+      votes,
       possibleGuessers,
     });
   }
@@ -278,6 +302,20 @@ function buildReveals(game: Game, round: Round): RoundReveal[] {
   // Ordre stable et sans information : par numéro croissant, comme on
   // dépouillerait le plateau de gauche à droite.
   return reveals.sort((a, b) => a.slot - b.slot);
+}
+
+/**
+ * Les votants d'une manche, dans l'ordre d'arrivée au salon.
+ *
+ * Ceux qui sont encore là d'abord, dans l'ordre du salon ; ceux qui sont partis
+ * en cours de manche ensuite — leurs votes comptent encore, il faut les montrer.
+ */
+function votersInJoinOrder(game: Game, round: Round): PlayerId[] {
+  const present = playersInJoinOrder(game)
+    .map((player) => player.id)
+    .filter((id) => round.assignments.has(id));
+  const gone = [...round.assignments.keys()].filter((id) => !game.players.has(id));
+  return [...present, ...gone];
 }
 
 // ─────────────────────────────────────────────────────────────

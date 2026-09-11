@@ -1,5 +1,11 @@
-import { SERVER_EVENTS, type Game, type ToastPayload } from '@identite-secrete/shared';
+import {
+  SERVER_EVENTS,
+  type Game,
+  type RelaySnapshot,
+  type ToastPayload,
+} from '@identite-secrete/shared';
 import { buildConnectedViews, buildPlayerView } from './serialization/playerView';
+import { buildRelayHandoffs } from './serialization/relay';
 import type { Emitter } from './transport';
 
 /**
@@ -31,6 +37,27 @@ export function sendStateTo(
 ): void {
   const view = buildPlayerView(game, playerId, now);
   if (view) emitter.emit(connectionId, SERVER_EVENTS.stateUpdate, view);
+}
+
+/**
+ * Envoie à chaque joueur connecté l'instantané qui lui permettra de reprendre
+ * la partie, et son rang dans la file de succession.
+ *
+ * C'est la seule diffusion de ce projet où **tout le monde reçoit la même
+ * chose**, et ce n'est pas une entorse à la règle du `broadcast(state)`
+ * interdit : l'instantané est construit pour ne porter aucun secret vivant,
+ * précisément pour pouvoir être diffusé ainsi (`serialization/relay.ts`). Le
+ * seul champ qui varie d'un destinataire à l'autre est son rang.
+ */
+export function broadcastRelay(
+  emitter: Emitter,
+  game: Game,
+  snapshot: RelaySnapshot,
+  excludeConnectionId?: string,
+): void {
+  for (const { connectionId, payload } of buildRelayHandoffs(game, snapshot, excludeConnectionId)) {
+    emitter.emit(connectionId, SERVER_EVENTS.relaySnapshot, payload);
+  }
 }
 
 /** Message court et non bloquant, affiché en surimpression côté client. */

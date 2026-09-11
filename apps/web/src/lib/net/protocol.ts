@@ -46,8 +46,27 @@ export interface EventMessage {
   payload: unknown;
 }
 
-export type ClientMessage = RequestMessage;
-export type HostMessage = ResponseMessage | EventMessage;
+/**
+ * Invité → hôte : « tu es toujours là ? ».
+ *
+ * Volontairement au niveau du transport, et non un événement de jeu : il ne
+ * traverse ni la table d'événements du moteur, ni les schémas Zod, ni le
+ * limiteur de débit. Un battement n'est pas une action du joueur.
+ */
+export interface PingMessage {
+  t: 'ping';
+  /** Horloge de l'émetteur, renvoyée telle quelle. Sert au seul journal. */
+  at: number;
+}
+
+/** Hôte → invité : la réponse au battement. */
+export interface PongMessage {
+  t: 'pong';
+  at: number;
+}
+
+export type ClientMessage = RequestMessage | PingMessage;
+export type HostMessage = ResponseMessage | EventMessage | PongMessage;
 
 /**
  * Plafond de taille d'un message.
@@ -81,9 +100,19 @@ export function encodeMessage(message: ClientMessage | HostMessage): string {
   return encoded;
 }
 
+/**
+ * Plafond de taille **en réception**.
+ *
+ * Le plafond d'émission ne protège que de nos propres bugs. Celui-ci protège
+ * d'un pair hostile ou détraqué : `JSON.parse` sur une chaîne de plusieurs
+ * mégaoctets fige l'onglet avant même qu'on ait pu refuser le message.
+ */
+const MAX_INCOMING_CHARS = 64_000;
+
 /** Décode ce qui arrive du canal. `null` si ce n'est pas du JSON exploitable. */
 function decode(value: unknown): unknown {
   if (typeof value !== 'string') return null;
+  if (value.length > MAX_INCOMING_CHARS) return null;
 
   try {
     return JSON.parse(value);
@@ -96,15 +125,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function readTimestamp(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 /**
  * Valide un message reçu par l'hôte.
  *
  * Ne vérifie que l'enveloppe : le contenu de `payload` est validé plus loin par
  * les schémas Zod du moteur, qui sont la vraie ligne de défense.
  */
-export function parseClientMessage(raw: unknown): RequestMessage | null {
+export function parseClientMessage(raw: unknown): ClientMessage | null {
   const value = decode(raw);
   if (!isRecord(value)) return null;
+
+  if (value.t === 'ping') return { t: 'ping', at: readTimestamp(value.at) };
+
   if (value.t !== 'req') return null;
   if (typeof value.id !== 'number' || !Number.isFinite(value.id)) return null;
   if (typeof value.event !== 'string' || value.event.length > 64) return null;
@@ -116,6 +152,8 @@ export function parseClientMessage(raw: unknown): RequestMessage | null {
 export function parseHostMessage(raw: unknown): HostMessage | null {
   const value = decode(raw);
   if (!isRecord(value)) return null;
+
+  if (value.t === 'pong') return { t: 'pong', at: readTimestamp(value.at) };
 
   if (value.t === 'res') {
     if (typeof value.id !== 'number' || !isRecord(value.ack)) return null;

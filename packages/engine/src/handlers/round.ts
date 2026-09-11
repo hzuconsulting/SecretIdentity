@@ -85,7 +85,7 @@ const startGame: EventHandler = (ctx, payload) =>
   });
 
 // ─────────────────────────────────────────────────────────────
-//  Manche suivante — hôte uniquement, depuis le classement
+//  Manche suivante — hôte uniquement, une fois la manche révélée
 // ─────────────────────────────────────────────────────────────
 
 const nextRound: EventHandler = (ctx, payload) =>
@@ -97,11 +97,15 @@ const nextRound: EventHandler = (ctx, payload) =>
     if (!nextRoundSchema.safeParse(payload ?? {}).success) return fail('INVALID_PAYLOAD');
     if (!isHost(game, playerId)) return fail('NOT_HOST');
     if (game.pausedAt !== null) return fail('GAME_PAUSED');
-    if (game.phase !== 'SCOREBOARD') return fail('WRONG_PHASE');
 
-    // `advance` vérifie à nouveau la phase : si le minuteur des 20 secondes a
-    // déjà enchaîné, l'appel devient sans effet au lieu de sauter une manche.
-    await ctx.deps.engine.advance(game, 'SCOREBOARD');
+    // Il n'y a plus de minuteur après une manche : c'est ce bouton, et lui seul,
+    // qui fait avancer. Depuis la révélation dans le déroulé normal, ou depuis le
+    // classement quand une reprise après migration y a atterri.
+    const { engine } = ctx.deps;
+    if (!engine.isBetweenRounds(game.phase)) return fail('WRONG_PHASE');
+
+    // `advance` revérifie la phase : un double appui ne saute pas une manche.
+    await engine.advance(game, game.phase);
     return ok(null);
   });
 

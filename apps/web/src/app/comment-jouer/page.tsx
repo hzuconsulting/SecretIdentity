@@ -83,8 +83,9 @@ export default function HowToPlayPage() {
         <Eyebrow tone="violet">Tes cartes ne se rechargent jamais</Eyebrow>
         <p className="mt-3 text-sm leading-relaxed text-ink/80">
           Tu reçois <strong>{STARTING_HAND_CARDS} cartes Picto au début de la partie</strong>,
-          et c’est tout. Chaque carte porte deux pictogrammes : tu n’en montres qu’un, et la
-          carte entière part à la défausse.
+          et c’est tout. Chaque carte porte quatre pictogrammes, deux au recto et deux au
+          verso : tu n’en montres qu’un, et la carte entière part à la défausse — les trois
+          autres avec elle.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-ink/80">
           {STARTING_HAND_CARDS} cartes pour {TOTAL_ROUNDS} manches à {MAX_PICTOS} maximum :
