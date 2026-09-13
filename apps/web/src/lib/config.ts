@@ -118,6 +118,46 @@ function readIceServers(): RTCIceServer[] {
 
 export const ICE_SERVERS = readIceServers();
 
+/**
+ * Annuaire des parties publiques.
+ *
+ * Il n'y a pas de serveur pour tenir la liste des salons ouverts : l'hôte d'une
+ * partie publique l'**annonce** sur un sujet ntfy.sh — un service de
+ * publication gratuit, sans compte, joignable depuis le navigateur — et
+ * l'accueil relit les annonces des deux dernières minutes (voir
+ * `lib/net/directory.ts`). Rien de secret n'y passe : code, pseudo de l'hôte,
+ * nombre de joueurs, manche en cours.
+ *
+ * Le sujet est public par nature : quiconque le connaît peut y écrire. Tout ce
+ * qui en est lu est donc revalidé, et l'annuaire n'est qu'un raccourci — le
+ * code reste la seule chose qui fait entrer dans une partie.
+ *
+ * `NEXT_PUBLIC_DIRECTORY_URL` remplace l'URL complète du sujet (un ntfy à soi,
+ * ou un autre sujet), `off` désactive l'annuaire : plus d'annonce, plus de
+ * liste. Le numéro de version du sujet suit celui du format des annonces.
+ */
+const DEFAULT_DIRECTORY_URL = 'https://ntfy.sh/identite-secrete-v1-parties-3k3p9bm824e';
+
+function readDirectoryUrl(): string | null {
+  const raw = process.env.NEXT_PUBLIC_DIRECTORY_URL?.trim();
+  if (!raw) return DEFAULT_DIRECTORY_URL;
+  if (raw.toLowerCase() === 'off') return null;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'https:' || url.protocol === 'http:') {
+      return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+    }
+  } catch {
+    // URL illisible : on retombe sur le sujet par défaut.
+  }
+
+  return DEFAULT_DIRECTORY_URL;
+}
+
+/** URL du sujet de l'annuaire, sans barre finale. `null` : annuaire désactivé. */
+export const DIRECTORY_URL = readDirectoryUrl();
+
 /** Délai au-delà duquel une action sans réponse est déclarée perdue. */
 export const REQUEST_TIMEOUT_MS = 8_000;
 

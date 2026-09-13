@@ -1,6 +1,8 @@
 import { ICONS, IDENTITIES, MAX_PLAYERS, MIN_PLAYERS } from '@identite-secrete/shared';
 import { HomeHero } from '@/components/HomeHero';
 import { ConnectionCheck } from '@/components/ConnectionCheck';
+import { OpenGames } from '@/components/home/OpenGames';
+import { ResumeGameBanner } from '@/components/ResumeGameBanner';
 import { ButtonLink } from '@/components/ui/Button';
 
 export default function HomePage() {
@@ -17,6 +19,9 @@ export default function HomePage() {
         </p>
       </header>
 
+      {/* Une partie en cours sur cet appareil passe avant tout le reste. */}
+      <ResumeGameBanner />
+
       <HomeHero />
 
       <nav className="flex flex-col gap-3" aria-label="Actions principales">
@@ -28,6 +33,8 @@ export default function HomePage() {
           Comment jouer&nbsp;?
         </ButtonLink>
       </nav>
+
+      <OpenGames />
 
       <footer className="mt-auto flex flex-col gap-3">
         <ConnectionCheck />

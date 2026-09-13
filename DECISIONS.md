@@ -538,8 +538,8 @@ genre d'erreur en échec immédiat.
 
 ### D-39 · La pause gèle le minuteur de phase, elle ne le laisse pas courir
 
-**Décision.** Sous 3 joueurs connectés, `pauseIfNeeded` annule l'échéance de phase et
-pose `pausedAt`. Les actions de jeu sont refusées avec `GAME_PAUSED`.
+**Décision.** Sous `MIN_PLAYERS` joueurs connectés (3 à l'origine, 2 depuis D-78),
+`pauseIfNeeded` annule l'échéance de phase et pose `pausedAt`. Les actions de jeu sont refusées avec `GAME_PAUSED`.
 
 **Pourquoi.** Laisser les minuteurs tourner pendant que deux personnes attendent un
 troisième reviendrait à faire défiler les manches dans le vide : au retour du joueur, la
@@ -1159,11 +1159,143 @@ Ils vérifient désormais le détail.
 
 ---
 
+### D-78 · Lancement dès 2 joueurs
+
+**Décision.** `MIN_PLAYERS` passe de 3 à 2. La partie est la même : aucune règle ne
+change avec le nombre de joueurs. Ce seuil sert à la fois pour lancer et pour mettre en
+pause. En mode « Auto », le temps de vote tombe à 1 min 05 à deux (un seul boîtier à
+lire) ; le temps de pose garde son plancher de 1 min 30.
+
+**Pourquoi.** Deux amis qui ouvrent le jeu ne doivent pas rester bloqués au salon à
+attendre un troisième. Le livret dit 3, mais rien dans le moteur n'exige une table de
+trois : le plateau garde ses 8 personnages, et il reste six leurres à deux.
+
+**Coût.**
+- **À deux, les deux joueurs ont toujours le même score.** Quand A trouve B, A marque
+  « bonne réponse » et B marque « faire deviner ». Chaque réponse juste rapporte donc un
+  point aux deux. C'est le départage du livret (les cartes gardées) qui désigne le
+  vainqueur. C'est assumé : on a écarté un mode duo coopératif à part.
+- **La partie reste à deux.** On ne rejoint pas une partie commencée : une table lancée à
+  deux joue ses quatre manches à deux.
+- **La pause arrive plus vite.** À deux, un seul joueur qui perd le réseau suffit à geler
+  la partie. Les tests de pause partent donc d'une partie à deux.
+
+---
+
+## Lot 11 — Revenir, trouver une partie, varier les soirées
+
+### D-79 · En pleine partie, on ne perd plus sa place
+
+**Décision.** Dans une partie commencée, ni `game:leave` ni la fin de la période de
+grâce ne retirent le joueur : il est marqué `away`, garde sa place, ses points et sa
+main, et cesse seulement d'être servi dans les manches suivantes. Il revient par sa
+session, ou en retapant **le même pseudo** — ce qui lui rend sa place avec un jeton
+neuf. Au salon, rien ne change : les places sont comptées, un départ les libère.
+
+**Pourquoi.** Deux plaintes, une seule cause. « Quand une personne quitte la partie,
+elle doit pouvoir revenir » ; et « quand je consulte les règles et que la partie avance,
+je suis exclu ». Dans les deux cas, le moteur retirait le joueur au bout de 60 s, puis
+refusait toute jointure à une partie commencée : il n'y avait plus de chemin de retour.
+
+**Coût.** Taper le pseudo d'un absent suffit à prendre sa place. Entre amis autour d'une
+table, c'est le bon compromis — un joueur **connecté**, lui, ne peut jamais être délogé.
+Les absents ne suivent pas au salon quand l'hôte relance une partie.
+
+---
+
+### D-80 · Les règles s'ouvrent par-dessus la partie, et la session suit le réseau
+
+**Décision.** En jeu, « Règles » ouvre un panneau au-dessus de l'écran courant au lieu
+de naviguer vers `/comment-jouer`. Le code de la partie, l'accueil et « Quitter » sont
+accessibles depuis toutes les phases. Et c'est le nœud réseau — qui survit à la
+navigation — qui présente la session à chaque reconnexion, plus seulement l'écran de
+jeu.
+
+**Pourquoi.** L'enquête a trouvé trois causes à l'« exclusion » en lisant les règles :
+la page des règles était un cul-de-sac (sans bouton retour sur une PWA iOS), un
+rechargement coupait le canal puis déclenchait le retrait, et une reconnexion survenue
+hors de l'écran de jeu n'était jamais rattachée au joueur. Le panneau supprime les deux
+premières, le rattachement au niveau du nœud la troisième.
+
+**Coût.** Une présentation de session en double quand l'écran de jeu est monté —
+inoffensive, le moteur rattache deux fois le même canal au même joueur.
+
+---
+
+### D-81 · Des durées « Auto », qui suivent le nombre de joueurs
+
+**Décision.** Les deux durées de phase acceptent `auto`, par défaut, et des valeurs
+fixes jusqu'à 5 min. « Auto » se résout à l'entrée de la phase, sur les participants de
+la manche : poser = 1 min 30 + 10 s par joueur au-delà de trois ; voter = 40 s + 25 s par
+adversaire (1 min 30 à trois, 3 min 35 à huit).
+
+**Pourquoi.** Les temps fixes étaient trop courts dès qu'on est nombreux. Le travail ne
+croît pas pareil selon la phase : choisir ses pictos contre les huit personnages ne
+dépend guère de la table ; voter, c'est lire chaque boîtier — le temps doit suivre.
+
+**Coût.** `45` n'est plus proposé mais reste accepté, pour lire les réglages d'avant.
+
+---
+
+### D-82 · Un annuaire des parties publiques, sans serveur à nous
+
+**Décision.** Une partie est publique ou privée (`settings.visibility`, publique par
+défaut). Une partie publique est annoncée sur un sujet ntfy.sh ; l'accueil lit ce sujet
+et liste les parties ouvertes. Une partie privée n'est jamais annoncée. Les annonces
+sont renouvelées toutes les 100 s, tenues pour mortes au bout de 250 s, et retirées
+explicitement quand la partie devient privée, se termine ou se ferme.
+
+**Pourquoi.** Lister des parties suppose un endroit partagé où les annoncer, et le
+projet n'a pas de serveur. ntfy.sh est un service public de publication, joignable en
+`fetch` depuis le navigateur, sans compte ni bibliothèque.
+
+**Coût.** Tout y est public : n'importe qui peut annoncer une fausse partie, ce que la
+validation stricte des messages limite à « partie introuvable ». Le quota anonyme est de
+250 messages par jour et par adresse IP — la cadence retenue tient environ sept heures
+de partie publique par jour. Au-delà, ou si le service est indisponible, la partie
+disparaît simplement de la liste : le code marche toujours. `NEXT_PUBLIC_DIRECTORY_URL`
+permet de brancher son propre ntfy, ou `off` de couper l'annuaire.
+
+---
+
+### D-83 · Varier les soirées : de grands catalogues, et une mémoire des personnages
+
+**Décision.** Les catalogues passent de 293 à 1 225 personnages — toujours répartis
+à peu près 45 / 40 / 15 entre facile, moyen et difficile — et de 349 à 981
+pictogrammes (Emoji 13 au plus, pour les téléphones de quelques années). Le fichier des
+personnages est découpé en un tableau par catégorie : d'un seul bloc, il dépassait ce que
+`tsc` sait typer (TS2590). Et l'hôte
+garde, dans son `localStorage`, les 256 derniers personnages montrés sur son appareil,
+versés dans `usedIdentityIds` à la création de chaque nouvelle partie.
+
+**Pourquoi.** « Au bout de trois ou quatre parties, beaucoup de personnages reviennent. »
+Une partie ne redonnait déjà jamais un personnage, mais chaque partie neuve repartait
+d'une ardoise vierge.
+
+**Coût.** La mémoire est par appareil hôte : une autre personne qui héberge repart de sa
+propre mémoire. Si elle épuise une difficulté, le moteur repart du catalogue complet,
+comme il le faisait déjà (§9).
+
+---
+
+### D-84 · Un jeton de session remplacé ne doit plus rien ouvrir
+
+**Décision.** `InMemoryStore.findBySessionToken` vérifie que le jeton est **toujours**
+celui du joueur, et plus seulement que le joueur existe.
+
+**Pourquoi.** La reprise de place par pseudo (D-79) donne un jeton neuf. Le test l'a
+révélé : l'ancien — resté sur un téléphone perdu ou prêté — ouvrait encore la place,
+parce que l'index n'était jamais purgé d'un jeton remplacé.
+
+**Coût.** Aucun.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  196 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  304 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -1174,7 +1306,7 @@ Ils vérifient désormais le détail.
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 196 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 304 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.

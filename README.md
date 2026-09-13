@@ -1,16 +1,27 @@
 # Identité Secrète
 
-Adaptation en ligne de **SECRET IDENTITY** (Funnyfox), mobile-first. 3 à 8 joueurs,
+Adaptation en ligne de **SECRET IDENTITY** (Funnyfox), mobile-first. 2 à 8 joueurs,
 chacun sur son téléphone. Huit personnages numérotés sont posés au centre, tu reçois
 en secret le numéro de l'un d'eux, et tu le fais deviner en posant des pictogrammes
 dans ton boîtier — en vert ce qui lui ressemble, en rouge ce qui ne lui ressemble pas.
 Pendant ce temps, tu essaies de reconnaître les autres.
 
 Les règles du livret sont suivies fidèlement : **8 personnages quel que soit le nombre
-de joueurs** (donc des leurres à 3), **10 cartes Picto pour toute la partie**, jamais
+de joueurs** (donc des leurres), **10 cartes Picto pour toute la partie**, jamais
 rechargées, **4 manches**, et le départage à l'égalité aux cartes gardées. La seule
-adaptation est le **minuteur par phase**, réglable dans le salon — un jeu de plateau
-n'en a pas besoin, une partie à distance si.
+adaptation est le **minuteur par phase**, réglable dans le salon — « Auto » par défaut,
+qui s'allonge avec le nombre de joueurs, ou une durée fixe jusqu'à 5 min.
+
+Ce que l'adaptation en ligne ajoute :
+
+- **Parties publiques ou privées.** Une partie publique apparaît sur l'accueil et se
+  rejoint d'un toucher ; une partie privée ne s'ouvre qu'avec son code.
+- **On ne perd jamais sa place.** Quitter une partie en cours, perdre le réseau ou
+  changer de téléphone : on revient avec le code et le même pseudo, points et main
+  intacts. Le code reste affiché pendant toute la partie.
+- **Les règles en un geste**, par-dessus la partie, sans la quitter.
+- **Un grand catalogue** — plus de mille personnages, près de mille pictogrammes — et
+  l'hôte se souvient des personnages déjà vus d'une soirée à l'autre.
 
 **Aucun serveur à déployer.** Le site est un ensemble de fichiers statiques, publiable
 sur GitHub Pages, et le moteur de jeu tourne dans le navigateur du joueur qui crée la
@@ -79,7 +90,7 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (196 tests) |
+| `npm test` | Suite Vitest complète (304 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
 | `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8, pose vert/rouge, vote, décompte |
@@ -202,6 +213,7 @@ Toutes optionnelles. Voir [`.env.example`](./.env.example), commenté.
 | `NEXT_PUBLIC_PEER_KEY` | — | Clé du PeerServer |
 | `NEXT_PUBLIC_PEER_SECURE` | `true` | `false` pour un PeerServer en clair (local) |
 | `NEXT_PUBLIC_ICE_SERVERS` | 2 STUN + 3 TURN publics | Tableau JSON de `RTCIceServer`. **Remplace** toute la liste |
+| `NEXT_PUBLIC_DIRECTORY_URL` | sujet ntfy.sh public | Annuaire des parties publiques (URL d'un sujet ntfy). `off` le désactive |
 
 ⚠️ Ces variables sont figées au moment du `next build`. Les changer impose de
 **reconstruire**, pas seulement de redémarrer.
@@ -232,7 +244,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 196 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 304 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.
@@ -297,9 +309,11 @@ couche, et c'est elle qui a produit toutes les pannes de production jusqu'ici.
 **`npm run test:e2e:manche`** va plus loin : quatre navigateurs, une exclusion par
 l'hôte, puis une manche entière jouée pour de vrai — plateau de 8 personnages, main de
 10 cartes, pose en vert et en rouge, vote nominatif, dépouillement des votes, une
-révélation qui **reste affichée** tant que l'hôte n'a pas lancé la manche suivante, et
-la main qui a bien fondu à 8. C'est la vérification à lancer après un changement de
-règles.
+révélation qui **reste affichée** tant que l'hôte n'a pas lancé la manche suivante, la
+main qui a bien fondu à 8 — puis le code visible en jeu, les règles ouvertes et fermées
+sans quitter la phase, et un joueur qui quitte la partie et y revient depuis l'accueil,
+dans la même manche et avec sa main. C'est la vérification à lancer après un changement
+de règles ou d'interface de partie.
 
 ## Dépannage
 

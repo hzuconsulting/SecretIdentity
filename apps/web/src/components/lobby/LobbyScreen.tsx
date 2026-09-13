@@ -14,6 +14,7 @@ import {
 import { PlayerList } from '@/components/lobby/PlayerList';
 import { SettingsPanel } from '@/components/lobby/SettingsPanel';
 import { ShareCode } from '@/components/lobby/ShareCode';
+import { RulesButton, useGameChrome } from '@/components/game/GameChrome';
 import { useSound } from '@/hooks/useSound';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/Feedback';
@@ -48,6 +49,7 @@ export function LobbyScreen({
   onKick,
 }: LobbyScreenProps) {
   const router = useRouter();
+  const chrome = useGameChrome();
   const { play } = useSound();
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<GameError | null>(null);
@@ -73,32 +75,51 @@ export function LobbyScreen({
     setStarting(false);
   }
 
+  /**
+   * « Quitter » passe par la confirmation du menu de partie. Sans
+   * `GameChromeProvider` au-dessus (le salon rendu hors de `GameClient`), on
+   * retombe sur le départ direct.
+   */
   async function quit() {
+    if (chrome) {
+      chrome.requestLeave();
+      return;
+    }
     await onLeave();
     router.push('/');
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 py-8">
-      <header className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-black uppercase leading-none tracking-tight">
-          Salon
-        </h1>
-        <div className="flex items-center gap-3">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 pb-8 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <header className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          {/*
+            L'accueil ne fait pas quitter le salon : le nœud réseau survit à la
+            navigation, et l'accueil propose d'y revenir.
+          */}
           <Link
-            href="/comment-jouer"
-            className="font-display text-xs font-extrabold uppercase tracking-widest text-violet"
+            href="/"
+            className="inline-flex min-h-[44px] items-center font-display text-sm font-extrabold uppercase tracking-widest text-violet"
           >
-            Règles
+            ← Accueil
           </Link>
+          <div className="flex items-center gap-2">
+            <RulesButton />
+            <SoundToggle />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-display text-4xl font-black uppercase leading-none tracking-tight">
+            Salon
+          </h1>
           <button
             type="button"
             onClick={() => void quit()}
-            className="min-h-[44px] font-display text-xs font-extrabold uppercase tracking-widest text-muted"
+            className="min-h-[44px] rounded-full px-3 font-display text-xs font-extrabold uppercase tracking-widest text-muted transition-colors duration-150 hover:bg-white/70 hover:text-pink"
           >
             Quitter
           </button>
-          <SoundToggle />
         </div>
       </header>
 
@@ -126,6 +147,7 @@ export function LobbyScreen({
         settings={view.settings}
         canEdit={view.you.isHost}
         onChange={onUpdateSettings}
+        playerCount={connectedCount}
       />
 
       <div className="mt-auto flex flex-col gap-2 pt-2">

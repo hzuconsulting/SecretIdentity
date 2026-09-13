@@ -9,26 +9,29 @@ import {
   ok,
   pingSchema,
   rejoinGameSchema,
+  type Ack,
   type Game,
   type PlayerId,
   type PongPayload,
   type SessionPayload,
 } from '@identite-secrete/shared';
 import { logger } from '../logger';
-import { createGame, createPlayer } from '../game/factory';
+import { createGame, createPlayer, takenNicknames } from '../game/factory';
 import {
   addPlayer,
   banNickname,
   checkCanJoin,
   isHost,
+  markAway,
   markDisconnected,
   markReconnected,
+  reclaimableSeat,
   removePlayer,
   transferHost,
 } from '../game/lobby';
 import { timerKeys } from '../timers';
 import { broadcastState, sendStateTo, toastAll } from '../emit';
-import { sha256Hex } from '../random';
+import { createSessionToken, sha256Hex } from '../random';
 import { finalizeGame, type EventHandler, type HandlerContext, type HandlerDeps } from './context';
 
 /**
@@ -111,11 +114,38 @@ const joinGame: EventHandler = (ctx, payload) =>
     const game = await store.get(code);
     if (!game) return fail('GAME_NOT_FOUND');
 
+    // Un exclu ne reprend jamais de place : ce contrôle passe avant tout.
+    if (game.bannedNicknames.has(nickname.toLowerCase())) return fail('KICKED');
+
+    // Le pseudo d'un joueur absent : c'est lui qui revient — après avoir quitté,
+    // perdu sa session, ou changé de téléphone. Il reprend sa place, ses points
+    // et sa main, y compris dans une partie déjà commencée.
+    const seat = reclaimableSeat(game, nickname);
+    if (seat) return reclaimSeat(ctx, game, seat.id);
+
+    // En pleine partie, le pseudo d'un joueur **connecté** : on ne le déloge
+    // jamais. Le plus probable est qu'il s'agisse de la même personne sur un
+    // second onglet ou appareil — le message doit le dire, pas « partie
+    // commencée », qui inviterait à retaper… le même pseudo.
+    if (game.phase !== 'LOBBY' && takenNicknames(game).has(nickname.toLowerCase())) {
+      return fail('NICKNAME_TAKEN', {
+        message:
+          'Ce pseudo est déjà connecté à la partie. Si c’est toi, ferme l’autre onglet ou appareil, puis réessaie.',
+      });
+    }
+
     const rejection = checkCanJoin(game, nickname);
     if (rejection) {
-      return rejection.reason === 'NICKNAME_TAKEN'
-        ? fail('NICKNAME_TAKEN', { suggestion: rejection.suggestion })
-        : fail(rejection.reason);
+      if (rejection.reason === 'NICKNAME_TAKEN') {
+        return fail('NICKNAME_TAKEN', { suggestion: rejection.suggestion });
+      }
+      if (rejection.reason === 'GAME_ALREADY_STARTED') {
+        return fail('GAME_ALREADY_STARTED', {
+          message:
+            'Cette partie a déjà commencé. Si tu en faisais partie, entre exactement le même pseudo qu’avant pour reprendre ta place.',
+        });
+      }
+      return fail(rejection.reason);
     }
 
     const now = Date.now();
@@ -129,6 +159,41 @@ const joinGame: EventHandler = (ctx, payload) =>
 
     return ok({ sessionToken: player.sessionToken, playerId: player.id, code: game.code });
   });
+
+/**
+ * Rend sa place à un joueur absent qui revient par son pseudo.
+ *
+ * Il reçoit un **jeton neuf** : l'ancien, resté peut-être sur un téléphone
+ * perdu ou prêté, cesse de donner accès à la place. Le reste suit le chemin
+ * d'une reconnexion ordinaire — échéances annulées, diffusion, reprise si la
+ * partie était en pause faute de monde.
+ */
+async function reclaimSeat(
+  ctx: HandlerContext,
+  game: Game,
+  playerId: PlayerId,
+): Promise<Ack<SessionPayload>> {
+  const { store, timers, emitter, engine } = ctx.deps;
+  const player = game.players.get(playerId);
+  if (!player) return fail('SESSION_NOT_FOUND');
+
+  const now = Date.now();
+  timers.cancel(timerKeys.drop(game.code, playerId));
+  if (isHost(game, playerId)) timers.cancel(timerKeys.hostTransfer(game.code));
+
+  player.sessionToken = createSessionToken();
+  delete player.sessionTokenHash;
+  markReconnected(game, playerId, ctx.connectionId, now);
+  await store.save(game);
+  ctx.bind(game.code, playerId);
+
+  logger.info(`${player.nickname} reprend sa place dans ${game.code}`);
+  toastAll(emitter, game, `${player.nickname} est de retour.`, 'success');
+  broadcastState(emitter, game, now);
+  await engine.resumeIfPossible(game);
+
+  return ok({ sessionToken: player.sessionToken, playerId, code: game.code });
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Reconnexion
@@ -221,9 +286,14 @@ const leave: EventHandler = (ctx) =>
     const now = Date.now();
     const player = game.players.get(playerId);
     const wasHost = isHost(game, playerId);
+    // Au salon, partir libère la place — elles sont comptées. En cours de
+    // partie, on la garde : on doit pouvoir revenir dans la partie qu'on a
+    // quittée, avec ses points et sa main.
+    const keepSeat = game.phase !== 'LOBBY';
 
     timers.cancel(timerKeys.drop(game.code, playerId));
-    removePlayer(game, playerId, now);
+    if (keepSeat) markAway(game, playerId, now);
+    else removePlayer(game, playerId, now);
     ctx.unbind();
 
     // Départ volontaire : le transfert d'hôte est immédiat (§9).
@@ -236,11 +306,21 @@ const leave: EventHandler = (ctx) =>
     }
 
     if (player) {
-      toastAll(emitter, game, `${player.nickname} a quitté la partie.`, 'info');
+      toastAll(
+        emitter,
+        game,
+        keepSeat
+          ? `${player.nickname} a quitté la partie — sa place l’attend.`
+          : `${player.nickname} a quitté la partie.`,
+        'info',
+      );
     }
 
     await ctx.finalize(game, now);
-    await engine.pauseIfNeeded(game);
+    if (!(await engine.pauseIfNeeded(game))) {
+      // Il était peut-être le dernier qu'on attendait pour conclure la phase.
+      await engine.advanceIfComplete(game);
+    }
     return ok(null);
   });
 
@@ -407,6 +487,20 @@ async function dropAfterGrace(
   if (!player || player.connected) return;
 
   const now = Date.now();
+
+  // En cours de partie, personne n'est retiré pour une absence : il garde sa
+  // place et pourra revenir. On cesse seulement de le servir dans les manches
+  // suivantes. Le retrait après la période de grâce ne vaut qu'au salon, où les
+  // places sont comptées. (C'est ce retrait qui « excluait » un joueur parti
+  // lire les règles une minute de trop.)
+  if (game.phase !== 'LOBBY') {
+    markAway(game, playerId, now);
+    await store.save(game);
+    broadcastState(emitter, game, now);
+    logger.info(`${player.nickname} absent de ${code} — place gardée`);
+    return;
+  }
+
   const wasHost = isHost(game, playerId);
   removePlayer(game, playerId, now);
 

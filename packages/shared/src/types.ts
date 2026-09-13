@@ -129,10 +129,25 @@ export interface PlacedPicto extends ShownPicto {
 //  Paramètres de partie
 // ─────────────────────────────────────────────────────────────
 
-/** `null` signifie « pas de limite de temps » (∞). */
+/** Durée effective, en secondes. `null` signifie « pas de limite de temps » (∞). */
 export type TimerSeconds = number | null;
 
+/**
+ * Réglage d'une durée de phase : une valeur fixe, sans limite (`null`), ou
+ * `'auto'` — calculée à l'entrée de la phase selon le nombre de joueurs de la
+ * manche (voir `phaseTiming.ts`).
+ */
+export type TimerSetting = TimerSeconds | 'auto';
+
 export type DifficultySetting = IdentityDifficulty | 'mixed';
+
+/**
+ * Visibilité d'une partie.
+ *
+ * `public` — annoncée sur l'accueil, on peut la rejoindre d'un toucher.
+ * `private` — jamais annoncée : seul le code permet d'entrer.
+ */
+export type GameVisibility = 'public' | 'private';
 
 /**
  * Ce qui reste réglable.
@@ -142,9 +157,10 @@ export type DifficultySetting = IdentityDifficulty | 'mixed';
  * sont propres à l'adaptation en ligne — le jeu de plateau n'en a pas.
  */
 export interface Settings {
-  clueSeconds: TimerSeconds;
-  guessSeconds: TimerSeconds;
+  clueSeconds: TimerSetting;
+  guessSeconds: TimerSetting;
   difficulty: DifficultySetting;
+  visibility: GameVisibility;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -200,6 +216,15 @@ export interface Player {
   connected: boolean;
   disconnectedAt: number | null;
   joinedAt: number;
+  /**
+   * A quitté une partie **en cours**, ou n'est pas revenu à temps.
+   *
+   * Il garde sa place, ses points et sa main, et peut revenir à tout moment —
+   * par sa session, ou en retapant le même pseudo. En attendant, il n'est plus
+   * servi dans les manches suivantes : lui attribuer un numéro imposerait aux
+   * autres un boîtier fantôme à deviner. Absent (ou `false`) le reste du temps.
+   */
+  away?: boolean;
 }
 
 export interface PlayerRound {
@@ -282,6 +307,8 @@ export interface PublicPlayer {
    */
   cardsLeft: number;
   connected: boolean;
+  /** A quitté la partie en cours ; sa place l'attend. Voir `Player.away`. */
+  away: boolean;
   isHost: boolean;
 }
 
@@ -410,7 +437,7 @@ export interface PlayerView {
   standings?: RoundScoreLine[];
   stats?: GameStats;
 
-  /** Partie en pause (moins de 3 joueurs connectés, cf. §9). */
+  /** Partie en pause (moins de `MIN_PLAYERS` joueurs connectés, cf. §9). */
   paused?: boolean;
   pauseReason?: string;
 }

@@ -177,6 +177,43 @@ try {
   if (cartes !== 32) throw new Error(`${cartes / 4} cartes en main, attendu 8`);
   ok('la main est passee de 10 a 8 cartes');
 
+  // -- Rester dans la partie ----------------------------------
+  // Le code reste visible en jeu : c'est ce qui permet a un absent de revenir.
+  const spacedCode = code.split('').join(' ');
+  await malo
+    .getByRole('button', { name: new RegExp(`Code de la partie : ${spacedCode}`) })
+    .waitFor({ timeout: 10_000 });
+  ok('le code est visible en cours de partie');
+
+  // Les regles s'ouvrent par-dessus la partie : on la retrouve en les fermant.
+  await malo.getByRole('button', { name: /^Règles$/ }).first().click();
+  await malo.getByRole('dialog').waitFor({ timeout: 5_000 });
+  await malo.keyboard.press('Escape');
+  await malo.getByRole('dialog').waitFor({ state: 'hidden', timeout: 5_000 });
+  await malo
+    .getByRole('heading', { level: 1, name: /^Ton boîtier$/i })
+    .waitFor({ timeout: 5_000 });
+  ok('les regles s’ouvrent et se ferment sans quitter la partie');
+
+  // Quitter en pleine partie garde la place ; l'accueil propose d'y revenir.
+  await malo.getByRole('button', { name: /Menu de la partie/ }).click();
+  await malo.getByRole('button', { name: /Quitter la partie/ }).click();
+  await malo.getByRole('button', { name: /^Quitter$/ }).click();
+  await malo.waitForURL((url) => !url.pathname.includes('/game'), { timeout: 20_000 });
+  await host.waitForFunction(() => /sa place l.attend/i.test(document.body.innerText), undefined, {
+    timeout: 15_000,
+  });
+  ok("Malo quitte la partie, l'hote voit que sa place l'attend");
+
+  await malo.goto(`${BASE}/`, { waitUntil: 'load' });
+  await malo.getByRole('link', { name: /Revenir/ }).first().click();
+  await malo
+    .getByRole('heading', { level: 1, name: /^Ton boîtier$/i })
+    .waitFor({ timeout: 30_000 });
+  const handBack = await malo.getByRole('button', { name: /appuie pour poser/i }).count();
+  if (handBack !== 32) throw new Error(`${handBack / 4} cartes au retour, attendu 8`);
+  ok('Malo revient depuis l’accueil, dans la meme manche, avec sa main');
+
   if (erreurs.length > 0) throw new Error(`erreurs de page :\n${erreurs.join('\n')}`);
   console.log('\nOK - MANCHE COMPLETE, REGLES DU LIVRET RESPECTEES');
 } finally {

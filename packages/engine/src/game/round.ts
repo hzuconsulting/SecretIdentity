@@ -28,13 +28,18 @@ import { playersInJoinOrder } from './factory';
  */
 
 /**
- * Joueurs pris en compte pour la manche : tous ceux présents dans le salon au
- * moment du tirage, connectés ou non. Un joueur momentanément déconnecté garde
- * sa place et peut revenir en cours de manche ; un joueur qui a **quitté** — ou
- * qui a été exclu — a déjà été retiré de `game.players` et n'est donc pas servi.
+ * Joueurs pris en compte pour la manche : ceux présents au moment du tirage,
+ * connectés ou **momentanément** déconnectés — une coupure de réseau ne doit
+ * pas coûter une manche.
+ *
+ * Ne sont pas servis : un joueur exclu (retiré de `game.players`), et un joueur
+ * **absent** — parti en cours de partie, ou pas revenu à temps. Il garde sa
+ * place et reprendra à la manche suivante dès qu'il reviendra.
  */
 export function roundParticipants(game: Game): PlayerId[] {
-  return playersInJoinOrder(game).map((player) => player.id);
+  return playersInJoinOrder(game)
+    .filter((player) => !player.away)
+    .map((player) => player.id);
 }
 
 export function createRound(game: Game, roundNumber: number, rng: Rng): Round {

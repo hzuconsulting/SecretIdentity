@@ -8,6 +8,7 @@ import {
   type SessionPayload,
 } from '@identite-secrete/shared';
 import { buildRelaySnapshot } from '../serialization/relay';
+import { roundParticipants } from '../game/round';
 import { sha256Hex } from '../random';
 import {
   TEST_GRACE_MS,
@@ -229,6 +230,7 @@ describe('reprise par un autre joueur', () => {
       taker = await adoptTestServer(snapshot);
 
       // Un seul revenant : trop peu pour repartir.
+      expect(MIN_PLAYERS).toBeGreaterThan(1);
       await rejoin(taker, party.sessions[0]!);
 
       const paused = await gameOf(taker, party.code);
@@ -245,7 +247,6 @@ describe('reprise par un autre joueur', () => {
 
       const resumed = await gameOf(taker, party.code);
       expect(resumed.pausedAt).toBeNull();
-      expect(MIN_PLAYERS).toBe(3);
     } finally {
       origin.close();
       taker?.close();
@@ -352,7 +353,7 @@ describe('le salon après une reprise', () => {
     }
   });
 
-  it('retire un joueur qui ne revient jamais', async () => {
+  it('garde la place d’un joueur qui ne revient pas, sans plus le servir', async () => {
     const origin = startTestServer();
     let taker: TestHost | null = null;
 
@@ -364,10 +365,13 @@ describe('le salon après une reprise', () => {
       const absent = party.sessions[2]!.playerId;
       for (const session of party.sessions.slice(0, 2)) await rejoin(taker, session);
 
-      // Sans échéance armée à la reprise, ce fantôme occuperait un siège pour
-      // toujours et entrerait dans chaque manche suivante.
+      // Sans échéance armée à la reprise, ce fantôme entrerait dans chaque
+      // manche suivante. La partie étant commencée, il n'est pas retiré : sa
+      // place l'attend, mais il cesse d'être servi.
       await wait(TEST_GRACE_MS + 80);
-      expect((await gameOf(taker, party.code)).players.has(absent)).toBe(false);
+      const game = await gameOf(taker, party.code);
+      expect(game.players.get(absent)?.away).toBe(true);
+      expect(roundParticipants(game)).not.toContain(absent);
     } finally {
       origin.close();
       taker?.close();

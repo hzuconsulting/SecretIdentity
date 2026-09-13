@@ -1,5 +1,5 @@
 import { AVATAR_COLORS } from './constants';
-import type { DifficultySetting, TimerSeconds } from './types';
+import type { DifficultySetting, GameVisibility, TimerSetting } from './types';
 
 /** `62` → `"01:02"`. Toujours deux chiffres, jamais de valeur négative. */
 export function formatCountdown(secondsRemaining: number): string {
@@ -18,8 +18,21 @@ export function secondsRemaining(
   return Math.max(0, Math.ceil((phaseEndsAt - now) / 1000));
 }
 
-export function formatTimerOption(value: TimerSeconds): string {
-  return value === null ? 'Sans limite' : `${value} s`;
+/** `45` → `"45 s"`, `90` → `"1 min 30"`, `120` → `"2 min"`. */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes} min` : `${minutes} min ${String(rest).padStart(2, '0')}`;
+}
+
+export function formatTimerOption(value: TimerSetting): string {
+  if (value === 'auto') return 'Auto';
+  return value === null ? 'Sans limite' : formatDuration(value);
+}
+
+export function formatVisibility(value: GameVisibility): string {
+  return value === 'public' ? 'Publique' : 'Privée';
 }
 
 const DIFFICULTY_LABELS: Record<DifficultySetting, string> = {

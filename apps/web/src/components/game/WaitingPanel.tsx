@@ -43,26 +43,33 @@ export function WaitingPanel({ view, verb, onKick }: WaitingPanelProps) {
       </div>
 
       <ul className="flex flex-col gap-1.5">
-        {progress.map((entry) => (
-          <li
-            key={entry.playerId}
-            className="flex flex-wrap items-center gap-2 rounded-tile bg-white px-4 py-2.5 text-sm font-semibold shadow-tile"
-          >
-            <span aria-hidden="true">{entry.submitted ? '✅' : '⏳'}</span>
-            <span className={['min-w-0 flex-1', entry.submitted ? '' : 'text-muted'].join(' ')}>
-              {entry.nickname} {entry.submitted ? verb : 'réfléchit encore'}
-            </span>
+        {progress.map((entry) => {
+          // Parti en cours de partie : sa place l'attend, mais on ne l'attend pas,
+          // lui — le dire évite de fixer un « réfléchit encore » qui ne viendra pas.
+          const away = view.players.find((player) => player.id === entry.playerId)?.away;
+          const status = entry.submitted ? verb : away ? 'a quitté la partie' : 'réfléchit encore';
 
-            {kickHandler && entry.playerId !== view.you.id ? (
-              <KickButton
-                playerId={entry.playerId}
-                nickname={entry.nickname}
-                onKick={kickHandler}
-                warning="La manche se termine sans cette personne."
-              />
-            ) : null}
-          </li>
-        ))}
+          return (
+            <li
+              key={entry.playerId}
+              className="flex flex-wrap items-center gap-2 rounded-tile bg-white px-4 py-2.5 text-sm font-semibold shadow-tile"
+            >
+              <span aria-hidden="true">{entry.submitted ? '✅' : away ? '🚪' : '⏳'}</span>
+              <span className={['min-w-0 flex-1', entry.submitted ? '' : 'text-muted'].join(' ')}>
+                {entry.nickname} {status}
+              </span>
+
+              {kickHandler && entry.playerId !== view.you.id ? (
+                <KickButton
+                  playerId={entry.playerId}
+                  nickname={entry.nickname}
+                  onKick={kickHandler}
+                  warning="La manche se termine sans cette personne."
+                />
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
 
       <p className="text-center text-sm font-semibold text-muted">

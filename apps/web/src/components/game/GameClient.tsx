@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GameError } from '@identite-secrete/shared';
 import { useGameConnection } from '@/hooks/useGameConnection';
+import { markSessionActive } from '@/lib/session';
 import { LobbyScreen } from '@/components/lobby/LobbyScreen';
+import { GameChromeBar, GameChromeProvider } from '@/components/game/GameChrome';
 import { FinalResultsScreen, ScoreboardScreen } from '@/components/game/RoundScreens';
 import { GuessingScreen } from '@/components/game/GuessingScreen';
 import { ResultsScreen } from '@/components/game/ResultsScreen';
@@ -49,11 +51,23 @@ export function GameClient({ code }: { code: string }) {
   const [joinError, setJoinError] = useState<GameError | null>(null);
   const [busy, setBusy] = useState(false);
 
-  /** « Nouvelle partie » : on quitte le salon et on revient à l'accueil. */
+  /**
+   * Départ explicite — « Quitter » du menu, « Nouvelle partie » en fin de
+   * partie : on quitte la partie et on revient à l'accueil.
+   */
   async function quitToHome() {
     await leave();
     router.push('/');
   }
+
+  // Tant qu'on est dans la partie, on le note : c'est ce qui permet à l'accueil
+  // et aux règles de proposer « Revenir à la partie » après un détour. Rafraîchi
+  // à chaque phase pour qu'une partie longue ne passe pas pour abandonnée.
+  const phase = view?.phase;
+  const round = view?.roundNumber;
+  useEffect(() => {
+    if (status === 'connected' && phase) markSessionActive(code);
+  }, [status, phase, round, code]);
 
   async function submitNickname() {
     if (busy || nickname.trim().length === 0) return;
@@ -155,12 +169,30 @@ export function GameClient({ code }: { code: string }) {
   }
 
   return (
-    <>
+    <GameChromeProvider
+      code={view.code}
+      isHost={view.you.isHost}
+      hosting={hosting}
+      phase={view.phase}
+      onLeave={quitToHome}
+    >
       {renderPhase()}
-      {view.paused ? <PausedOverlay view={view} /> : null}
+      {view.paused ? (
+        <>
+          <PausedOverlay view={view} />
+          {/*
+            La pause recouvre tout l'écran, en-tête compris. Le code et le menu
+            restent pourtant utiles — surtout là : c'est quand on attend un
+            absent qu'on veut lui renvoyer le code, ou rentrer à l'accueil.
+          */}
+          <div className="fixed inset-x-0 top-0 z-[45] mx-auto w-full max-w-md px-5 pt-[max(1.5rem,env(safe-area-inset-top))]">
+            <GameChromeBar />
+          </div>
+        </>
+      ) : null}
       {hosting ? <HostingNotice /> : null}
       <ToastStack toasts={toasts} />
-    </>
+    </GameChromeProvider>
   );
 
   function renderPhase() {

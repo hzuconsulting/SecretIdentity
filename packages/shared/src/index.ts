@@ -8,6 +8,7 @@ export * from './gameCode';
 export * from './events';
 export * from './relay';
 export * from './format';
+export * from './phaseTiming';
 export {
   IDENTITIES,
   IDENTITY_PACKS,

@@ -23,6 +23,23 @@ export type JoinRejection =
   | { reason: 'NICKNAME_TAKEN'; suggestion: string };
 
 /**
+ * La place qu'un pseudo peut reprendre : celle d'un joueur de même pseudo qui
+ * n'est **pas** connecté. `null` s'il n'y en a pas.
+ *
+ * C'est ce qui permet de revenir dans une partie en cours après l'avoir
+ * quittée, ou depuis un autre téléphone. La contrepartie est assumée : entre
+ * amis autour d'une table, taper le pseudo d'un absent suffit à prendre sa
+ * place. Un joueur connecté, lui, ne peut jamais être délogé ainsi.
+ */
+export function reclaimableSeat(game: Game, nickname: string): Player | null {
+  const wanted = nickname.trim().toLowerCase();
+  for (const player of game.players.values()) {
+    if (!player.connected && player.nickname.toLowerCase() === wanted) return player;
+  }
+  return null;
+}
+
+/**
  * Vérifie qu'un joueur peut rejoindre. Retourne `null` si c'est bon.
  * L'ordre des contrôles est celui du §4.3 : exclusion, partie commencée, salon
  * plein, puis pseudo — le message le plus utile en premier.
@@ -97,6 +114,23 @@ export function markReconnected(
   player.connected = true;
   player.disconnectedAt = null;
   player.connectionId = connectionId;
+  // Revenir, c'est reprendre sa place pleinement : servi dès la manche suivante.
+  player.away = false;
+  touch(game, now);
+}
+
+/**
+ * Marque un joueur absent d'une partie en cours, **sans** le retirer.
+ * Voir `Player.away`.
+ */
+export function markAway(game: Game, playerId: PlayerId, now: number): void {
+  const player = game.players.get(playerId);
+  if (!player) return;
+
+  player.connected = false;
+  player.connectionId = null;
+  player.disconnectedAt ??= now;
+  player.away = true;
   touch(game, now);
 }
 

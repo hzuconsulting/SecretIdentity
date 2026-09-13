@@ -13,7 +13,7 @@ import {
   type SessionPayload,
 } from '@identite-secrete/shared';
 import { getNode } from '@/lib/net';
-import { saveSession } from '@/lib/session';
+import { loadSession, saveSession } from '@/lib/session';
 import { CODE_PARAM } from '@/components/game/GameRoute';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/Feedback';
@@ -27,15 +27,27 @@ export default function JoinGamePage() {
   const [busy, setBusy] = useState(false);
 
   const codeReady = isValidGameCode(code);
-  const ready = codeReady && nickname.trim().length > 0;
+
+  // Ce téléphone a déjà une place dans cette partie : pas de nouvelle
+  // jointure, on y retourne — `/game` reprend la session tout seul. Lu pendant
+  // le rendu sans risque pour l'hydratation : le code est vide au premier rendu,
+  // et `loadSession` n'est alors pas appelé.
+  const known = codeReady ? loadSession(code) : null;
+
+  const ready = codeReady && (known !== null || nickname.trim().length > 0);
 
   async function join() {
     if (busy || !ready) return;
 
+    const normalized = normalizeGameCode(code);
+
+    if (known) {
+      router.push(`/game?${CODE_PARAM}=${normalized}`);
+      return;
+    }
+
     setBusy(true);
     setError(null);
-
-    const normalized = normalizeGameCode(code);
 
     // Ouvrir le canal, c'est déjà chercher la partie : le code est
     // l'identifiant de l'hôte auprès du service de mise en relation. Un code
@@ -114,12 +126,29 @@ export default function JoinGamePage() {
         </p>
       </div>
 
-      <NicknameField value={nickname} onChange={setNickname} />
+      {known ? (
+        <p
+          role="status"
+          className="rounded-tile bg-mint-light px-4 py-3 text-sm font-semibold text-ink"
+        >
+          Tu as déjà une place dans la partie{' '}
+          <strong className="tracking-widest">{normalizeGameCode(code)}</strong> sur ce
+          téléphone. Pas besoin de pseudo : on te ramène directement.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <NicknameField value={nickname} onChange={setNickname} />
+          <p className="text-xs text-muted">
+            Tu reviens dans une partie déjà lancée&nbsp;? Reprends le même pseudo : ta
+            place t’attend.
+          </p>
+        </div>
+      )}
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       <Button onClick={() => void join()} disabled={busy || !ready}>
-        {busy ? 'Connexion…' : 'Rejoindre la partie'}
+        {busy ? 'Connexion…' : known ? 'Revenir dans la partie' : 'Rejoindre la partie'}
       </Button>
     </main>
   );

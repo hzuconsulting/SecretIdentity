@@ -4,11 +4,17 @@ import { useState } from 'react';
 import {
   DIFFICULTY_OPTIONS,
   MAX_PICTOS,
+  MIN_PLAYERS,
   STARTING_HAND_CARDS,
   TIMER_OPTIONS,
   TOTAL_ROUNDS,
+  VISIBILITY_OPTIONS,
+  autoClueSeconds,
+  autoGuessSeconds,
   formatDifficulty,
+  formatDuration,
   formatTimerOption,
+  formatVisibility,
   type Settings,
 } from '@identite-secrete/shared';
 
@@ -16,6 +22,11 @@ interface SettingsPanelProps {
   settings: Settings;
   canEdit: boolean;
   onChange: (patch: Partial<Settings>) => Promise<unknown>;
+  /**
+   * Joueurs actuellement dans le salon. Sert à dire ce que vaut « Auto »
+   * aujourd'hui : une durée qu'on ne peut pas lire ne rassure personne.
+   */
+  playerCount?: number;
 }
 
 /**
@@ -25,8 +36,19 @@ interface SettingsPanelProps {
  * toujours ce que le moteur a renvoyé, et un clic déclenche un aller-retour.
  * C'est ce qui garantit que les six téléphones montrent la même chose.
  */
-export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProps) {
+export function SettingsPanel({
+  settings,
+  canEdit,
+  onChange,
+  playerCount,
+}: SettingsPanelProps) {
   const [pending, setPending] = useState<keyof Settings | null>(null);
+
+  // « Auto » se calcule à l'entrée de chaque phase, sur les joueurs de la manche.
+  // Au salon, on l'annonce pour la table telle qu'elle est — au moins trois.
+  const table = Math.max(MIN_PLAYERS, playerCount ?? MIN_PLAYERS);
+  const autoHint = (seconds: number) =>
+    `Auto : ${formatDuration(seconds)} à ${table} joueurs, plus long à plusieurs.`;
 
   async function apply<K extends keyof Settings>(key: K, value: Settings[K]) {
     if (!canEdit || settings[key] === value) return;
@@ -57,6 +79,7 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
           format={formatTimerOption}
           disabled={!canEdit || pending === 'clueSeconds'}
           onSelect={(value) => void apply('clueSeconds', value)}
+          hint={settings.clueSeconds === 'auto' ? autoHint(autoClueSeconds(table)) : undefined}
         />
         <Row
           label="Temps pour voter"
@@ -65,6 +88,11 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
           format={formatTimerOption}
           disabled={!canEdit || pending === 'guessSeconds'}
           onSelect={(value) => void apply('guessSeconds', value)}
+          hint={
+            settings.guessSeconds === 'auto'
+              ? `${autoHint(autoGuessSeconds(table))} Il faut lire chaque boîtier.`
+              : undefined
+          }
         />
         <Row
           label="Difficulté des personnages"
@@ -73,6 +101,19 @@ export function SettingsPanel({ settings, canEdit, onChange }: SettingsPanelProp
           format={formatDifficulty}
           disabled={!canEdit || pending === 'difficulty'}
           onSelect={(value) => void apply('difficulty', value)}
+        />
+        <Row
+          label="Visibilité de la partie"
+          options={VISIBILITY_OPTIONS}
+          current={settings.visibility}
+          format={formatVisibility}
+          disabled={!canEdit || pending === 'visibility'}
+          onSelect={(value) => void apply('visibility', value)}
+          hint={
+            settings.visibility === 'public'
+              ? 'Publique : elle apparaît sur l’accueil, et on la rejoint d’un toucher.'
+              : 'Privée : elle n’apparaît nulle part — seul le code permet d’entrer.'
+          }
         />
 
         {/*
@@ -95,6 +136,8 @@ interface RowProps<T> {
   format: (value: T) => string;
   disabled: boolean;
   onSelect: (value: T) => void;
+  /** Une phrase sous les options, pour dire ce que le choix implique. */
+  hint?: string | undefined;
 }
 
 function Row<T extends string | number | null>({
@@ -104,6 +147,7 @@ function Row<T extends string | number | null>({
   format,
   disabled,
   onSelect,
+  hint,
 }: RowProps<T>) {
   return (
     <div role="group" aria-label={label}>
@@ -133,6 +177,7 @@ function Row<T extends string | number | null>({
           );
         })}
       </div>
+      {hint ? <p className="mt-2 text-xs font-semibold text-muted">{hint}</p> : null}
     </div>
   );
 }

@@ -9,16 +9,20 @@ import {
   defaultRng,
   generateGameCode,
   type Ack,
+  type Game,
   type RelaySnapshot,
   type SessionPayload,
 } from '@identite-secrete/shared';
 import {
+  DIRECTORY_URL,
   GUEST_SILENCE_TIMEOUT_MS,
   peerIdForCode,
 } from '@/lib/config';
+import { createAnnouncer, describeGame } from './directory';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { PeerUnavailableError, openPeer } from './peer';
 import { clearHostedGame, loadHostedGame, saveHostedGame } from './hostStorage';
+import { rememberIdentities, seedRecentIdentities } from './recentIdentities';
 import { encodeMessage, parseClientMessage, type HostMessage } from './protocol';
 import { watchIce } from './iceInfo';
 import { recordAttempt } from './connectionLog';
@@ -97,6 +101,15 @@ export class HostNode implements GameNode {
   private relayTimer: ReturnType<typeof setTimeout> | null = null;
   private lastRelayAt = 0;
 
+  /**
+   * L'annonce de la partie dans l'annuaire de l'accueil (`directory.ts`).
+   *
+   * Nourrie par le même signal que la sauvegarde ; c'est l'annonceur qui
+   * décide quand publier, et qui retire l'annonce quand la partie devient
+   * privée, se termine, ou que l'hôte s'en va.
+   */
+  private readonly directory = createAnnouncer(DIRECTORY_URL);
+
   private constructor(
     readonly code: string,
     private peer: Peer,
@@ -113,6 +126,9 @@ export class HostNode implements GameNode {
     this.watchWindow();
     // L'écran de l'hôte doit rester allumé : c'est lui qui fait tourner la partie.
     this.releaseScreen = keepScreenAwake();
+    // Partie restaurée ou reprise : elle existe déjà, on l'annonce sans
+    // attendre la prochaine diffusion d'état.
+    void this.host.store.get(this.code).then((game) => this.announce(game), () => {});
   }
 
   /**
@@ -169,6 +185,12 @@ export class HostNode implements GameNode {
         node.close();
         throw new Error(ack.error.message);
       }
+
+      // Les personnages vus lors des parties précédentes sur cet appareil sont
+      // écartés d'emblée : sans ça, la même table les revoyait dès la troisième
+      // soirée. Avant toute manche, donc avant tout tirage.
+      const created = await host.store.get(code);
+      if (created) seedRecentIdentities(created);
 
       node.persistNow();
       return { node, session: ack.data };
@@ -498,8 +520,16 @@ export class HostNode implements GameNode {
 
   private persistNow(): void {
     void this.host.store.get(this.code).then((game) => {
-      if (game) saveHostedGame(game);
+      this.announce(game);
+      if (!game) return;
+      saveHostedGame(game);
+      rememberIdentities(game);
     });
+  }
+
+  /** Met l'annuaire au diapason de la partie — une partie disparue s'en retire. */
+  private announce(game: Game | undefined): void {
+    this.directory?.update(game ? describeGame(game) : null);
   }
 
   /**
@@ -569,7 +599,12 @@ export class HostNode implements GameNode {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void this.host.tickAll();
     };
-    const onHide = () => this.persistNow();
+    const onHide = () => {
+      this.persistNow();
+      // Onglet fermé ou rafraîchi : l'annonce disparaît tout de suite plutôt
+      // qu'au bout de sa péremption. Une page restaurée l'annonce à nouveau.
+      this.directory?.withdrawNow();
+    };
 
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('pagehide', onHide);
@@ -593,6 +628,8 @@ export class HostNode implements GameNode {
 
     this.releaseScreen?.();
     this.releaseScreen = null;
+
+    this.directory?.stop();
 
     for (const connection of this.connections.values()) connection.close();
     this.connections.clear();

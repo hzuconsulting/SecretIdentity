@@ -77,12 +77,16 @@ afterEach(async () => {
 
 // ─────────────────────────────────────────────────────────────
 
-describe('mise en pause sous 3 joueurs', () => {
+/**
+ * À deux — le minimum pour lancer —, il suffit qu'un joueur décroche pour
+ * passer sous `MIN_PLAYERS` connectés.
+ */
+describe('mise en pause sous le minimum de joueurs', () => {
   it('gèle la partie quand il ne reste pas assez de joueurs connectés', async () => {
-    const { players } = await startedGame();
-    const [host, , malo] = players as [TestClient, TestClient, TestClient];
+    const { players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
 
-    malo.disconnect();
+    allan.disconnect();
 
     const view = await host.waitForView((v) => v.paused === true, 'partie en pause');
     expect(view.pauseReason).toContain(String(MIN_PLAYERS));
@@ -90,10 +94,10 @@ describe('mise en pause sous 3 joueurs', () => {
   });
 
   it('refuse les actions de jeu pendant la pause', async () => {
-    const { players } = await startedGame();
-    const [host, , malo] = players as [TestClient, TestClient, TestClient];
+    const { players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
 
-    malo.disconnect();
+    allan.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const response = await host.emit(CLIENT_EVENTS.submitClues, {
@@ -105,10 +109,10 @@ describe('mise en pause sous 3 joueurs', () => {
   });
 
   it('n’avance plus dans les phases tant qu’elle est en pause', async () => {
-    const { players } = await startedGame();
-    const [host, , malo] = players as [TestClient, TestClient, TestClient];
+    const { players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
 
-    malo.disconnect();
+    allan.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const frozenPhase = host.lastView.phase;
@@ -120,11 +124,11 @@ describe('mise en pause sous 3 joueurs', () => {
   });
 
   it('reprend avec une échéance neuve quand quelqu’un revient', async () => {
-    const { players } = await startedGame();
-    const [host, , malo] = players as [TestClient, TestClient, TestClient];
-    const session = malo.session!;
+    const { players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
+    const session = allan.session!;
 
-    malo.disconnect();
+    allan.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const revenant = await connect();
@@ -142,17 +146,17 @@ describe('mise en pause sous 3 joueurs', () => {
   });
 
   it('conserve les soumissions déjà faites après une reprise', async () => {
-    const { code, players } = await startedGame();
-    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+    const { code, players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
     const chosen = placedOf(host);
 
     await host.emit(CLIENT_EVENTS.submitClues, { placed: chosen });
-    malo.disconnect();
+    allan.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const revenant = await connect();
-    const resuming = allan.waitForNextView((v) => v.paused !== true, 'reprise');
-    await revenant.emit(CLIENT_EVENTS.rejoinGame, { sessionToken: malo.session!.sessionToken });
+    const resuming = host.waitForNextView((v) => v.paused !== true, 'reprise');
+    await revenant.emit(CLIENT_EVENTS.rejoinGame, { sessionToken: allan.session!.sessionToken });
     await resuming;
 
     const game = await server.store.get(code);
@@ -162,8 +166,8 @@ describe('mise en pause sous 3 joueurs', () => {
   });
 
   it('ne compte pas les points deux fois après une reprise', async () => {
-    const { code, players } = await startedGame();
-    const [host, allan, malo] = players as [TestClient, TestClient, TestClient];
+    const { code, players } = await startedGame(MIN_PLAYERS);
+    const [host, allan] = players as [TestClient, TestClient];
 
     for (const client of players) {
       await client.emit(CLIENT_EVENTS.submitClues, { placed: placedOf(client) });
@@ -181,19 +185,19 @@ describe('mise en pause sous 3 joueurs', () => {
     }
     await host.emit(CLIENT_EVENTS.submitGuesses, { votes });
 
-    malo.disconnect();
+    allan.disconnect();
     await host.waitForView((v) => v.paused === true, 'pause');
 
     const revenant = await connect();
-    const resuming = allan.waitForNextView((v) => v.paused !== true, 'reprise');
-    await revenant.emit(CLIENT_EVENTS.rejoinGame, { sessionToken: malo.session!.sessionToken });
+    const resuming = host.waitForNextView((v) => v.paused !== true, 'reprise');
+    await revenant.emit(CLIENT_EVENTS.rejoinGame, { sessionToken: allan.session!.sessionToken });
     await resuming;
 
     const results = await host.waitForView((v) => v.phase === 'RESULTS', 'révélation', 8_000);
     const sarah = results.roundScores?.find((line) => line.nickname === 'Sarah');
 
-    // Sarah a trouvé les deux autres : +2, pas +4.
-    expect(sarah?.guessed).toBe(2);
+    // Sarah a trouvé Allan : +1, pas +2.
+    expect(sarah?.guessed).toBe(1);
     expect(sarah?.cumulative).toBe(sarah?.total);
   });
 });
@@ -223,7 +227,10 @@ describe('joueur qui quitte en cours de manche', () => {
     const results = await host.waitForView((v) => v.phase === 'RESULTS', 'révélation', 8_000);
 
     expect(results.reveals).toHaveLength(4);
-    expect(results.reveals?.some((reveal) => reveal.nickname === 'Joueur parti')).toBe(true);
+    // Elle garde sa place : son boîtier est révélé sous son vrai pseudo, et elle
+    // apparaît comme partie — pas comme disparue.
+    expect(results.reveals?.some((reveal) => reveal.nickname === 'Zoé')).toBe(true);
+    expect(results.players.find((p) => p.nickname === 'Zoé')?.away).toBe(true);
   });
 
   it('l’exclut des attributions de la manche suivante', async () => {
@@ -231,7 +238,12 @@ describe('joueur qui quitte en cours de manche', () => {
     const [host, , , zoe] = players as [TestClient, TestClient, TestClient, TestClient];
 
     await zoe.emit(CLIENT_EVENTS.leave, {});
-    await host.waitForView((v) => v.players.length === 3, 'Zoé partie');
+    // Elle reste dans la partie, marquée absente. (Attendre « 3 joueurs »
+    // retrouverait la vue du salon d'avant son arrivée.)
+    await host.waitForView(
+      (v) => v.players.some((p) => p.nickname === 'Zoé' && p.away),
+      'Zoé partie',
+    );
     await waitForRoundEnd(host, 1);
     await host.emit(CLIENT_EVENTS.nextRound, {});
     await host.waitForView((v) => v.roundNumber === 2, 'manche 2');
@@ -239,6 +251,117 @@ describe('joueur qui quitte en cours de manche', () => {
     const game = await server.store.get(code);
     expect(game!.rounds[1]!.assignments.size).toBe(3);
     expect(game!.rounds[1]!.assignments.has(zoe.session!.playerId)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+
+describe('revenir dans une partie en cours', () => {
+  /** Rejoindre par pseudo, sur une connexion neuve — un autre téléphone, par exemple. */
+  async function joinAs(code: string, nickname: string) {
+    const fresh = await connect();
+    const response = await fresh.emit<SessionPayload>(CLIENT_EVENTS.joinGame, {
+      code,
+      nickname,
+    });
+    return { fresh, response };
+  }
+
+  it('garde la place de celui qui quitte, et la lui rend par son pseudo', async () => {
+    const { code, players } = await startedGame(4);
+    const [host, , , zoe] = players as [TestClient, TestClient, TestClient, TestClient];
+    const before = await server.store.get(code);
+    const zoeId = zoe.session!.playerId;
+    const handBefore = before!.players.get(zoeId)!.hand.length;
+    const oldToken = zoe.session!.sessionToken;
+
+    await zoe.emit(CLIENT_EVENTS.leave, {});
+    await host.waitForView(
+      (v) => v.players.some((p) => p.nickname === 'Zoé' && p.away && !p.connected),
+      'Zoé partie',
+    );
+
+    // Même pseudo, casse différente : c'est elle, sa place l'attend.
+    const { fresh, response } = await joinAs(code, 'zoé');
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+
+    expect(response.data.playerId).toBe(zoeId);
+    // Jeton neuf : l'ancien ne donne plus accès à la place.
+    expect(response.data.sessionToken).not.toBe(oldToken);
+
+    const view = await fresh.waitForView((v) => v.you.id === zoeId, 'Zoé revenue');
+    expect(view.you.away).toBe(false);
+    expect(view.you.connected).toBe(true);
+    expect(view.you.cardsLeft).toBe(handBefore);
+
+    const stale = await (await connect()).emit(CLIENT_EVENTS.rejoinGame, {
+      sessionToken: oldToken,
+    });
+    expect(stale.ok).toBe(false);
+  });
+
+  it('ne sert plus un absent, puis le sert de nouveau dès son retour', async () => {
+    const { code, players } = await startedGame(4);
+    const [host, , , zoe] = players as [TestClient, TestClient, TestClient, TestClient];
+    const zoeId = zoe.session!.playerId;
+
+    await zoe.emit(CLIENT_EVENTS.leave, {});
+    await waitForRoundEnd(host, 1);
+    await host.emit(CLIENT_EVENTS.nextRound, {});
+    await host.waitForView((v) => v.roundNumber === 2, 'manche 2');
+
+    const round2 = (await server.store.get(code))!.rounds[1]!;
+    expect(round2.assignments.has(zoeId)).toBe(false);
+
+    // Elle revient pendant la manche 2 : elle y assiste, et joue la suivante.
+    await joinAs(code, 'Zoé');
+    await waitForRoundEnd(host, 2);
+    await host.emit(CLIENT_EVENTS.nextRound, {});
+    await host.waitForView((v) => v.roundNumber === 3, 'manche 3');
+
+    const round3 = (await server.store.get(code))!.rounds[2]!;
+    expect(round3.assignments.has(zoeId)).toBe(true);
+  });
+
+  it('ne retire plus personne à la fin de la période de grâce, en partie', async () => {
+    const { code, players } = await startedGame(4);
+    const zoe = players[3]!;
+    const zoeId = zoe.session!.playerId;
+
+    zoe.disconnect();
+    await wait(TEST_GRACE_MS + 80);
+
+    const game = await server.store.get(code);
+    expect(game!.players.has(zoeId)).toBe(true);
+    expect(game!.players.get(zoeId)!.away).toBe(true);
+
+    // Et sa session suffit toujours à revenir.
+    const back = await connect();
+    const response = await back.emit(CLIENT_EVENTS.rejoinGame, {
+      sessionToken: zoe.session!.sessionToken,
+    });
+    expect(response.ok).toBe(true);
+    expect((await server.store.get(code))!.players.get(zoeId)!.away).toBe(false);
+  });
+
+  it('ne permet jamais de déloger un joueur connecté par son pseudo', async () => {
+    const { code } = await startedGame(3);
+
+    const { response } = await joinAs(code, 'Allan');
+    expect(response.ok).toBe(false);
+    if (!response.ok) expect(response.error.code).toBe('NICKNAME_TAKEN');
+  });
+
+  it('explique comment revenir à un inconnu qui arrive en pleine partie', async () => {
+    const { code } = await startedGame(3);
+
+    const { response } = await joinAs(code, 'Inconnu');
+    expect(response.ok).toBe(false);
+    if (!response.ok) {
+      expect(response.error.code).toBe('GAME_ALREADY_STARTED');
+      expect(response.error.message).toContain('même pseudo');
+    }
   });
 });
 

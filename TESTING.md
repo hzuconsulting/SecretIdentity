@@ -12,10 +12,11 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 196 tests
+### Couverture — 304 tests
 
 **`scoring.test.ts`** — le calcul de score
 - 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
+- 2 joueurs : les deux totaux sont toujours égaux, plafond à 2 par manche
 - 8 joueurs : plafond à N−1 dans chaque colonne
 - un vote pour soi-même est ignoré
 - un vote pour un joueur inconnu est ignoré
@@ -89,8 +90,8 @@ raccourcies (120 ms et
 facteur `timeScale` de 0,01 à **toutes** les durées de phase : une phase réglée sur 60 s
 y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 
-- *lancement* : refusé sous 3 joueurs, refusé pour un non-hôte, réglages verrouillés dès
-  le départ, double lancement rejeté
+- *lancement* : refusé à l'hôte seul, **accepté dès 2 joueurs** (plateau de 8, 6 leurres),
+  refusé pour un non-hôte, réglages verrouillés dès le départ, double lancement rejeté
 - *attribution* : **plateau de 8 personnages** quel que soit le nombre de joueurs,
   personnages distincts pour 4 joueurs, main de 10 cartes par joueur, numéros attribués
   distincts et dans les bornes, aucun personnage réutilisé d'une manche à l'autre
@@ -159,12 +160,18 @@ ne les reçoivent jamais.
 
 **`robustness.test.ts`** — cas limites du §9.
 
-- *mise en pause* : la partie gèle sous 3 joueurs connectés, les actions de jeu sont
+- *mise en pause* : une partie à 2 gèle dès qu'un joueur décroche, les actions de jeu sont
   refusées avec `GAME_PAUSED`, **la phase n'avance plus** (vérifié en attendant plus
   longtemps que la durée de phase), la reprise repart avec une échéance neuve, les
   soumissions déjà faites sont conservées, et **les points ne sont pas comptés deux fois**
-- *joueur parti en cours de manche* : la manche se termine et son boîtier est révélé sous
-  « Joueur parti » ; il est exclu des attributions de la manche suivante
+- *joueur parti en cours de manche* : la manche se termine et son boîtier est révélé
+  sous son vrai pseudo, marqué absent ; il n'est pas servi dans la manche suivante
+- *revenir dans une partie en cours* : quitter garde la place ; retaper **le même
+  pseudo** (casse indifférente) la rend, points et main intacts, avec un jeton neuf —
+  l'ancien n'ouvre plus rien ; un absent n'est plus servi, puis l'est de nouveau dès son
+  retour ; la fin de la période de grâce ne retire plus personne en partie ; le pseudo
+  d'un joueur **connecté** ne permet jamais de le déloger ; un inconnu apprend comment
+  revenir
 - *limitation de débit* : fenêtre glissante testée unitairement ; en intégration, une
   rafale reçoit `RATE_LIMITED` sans que le canal soit fermé
 - *purge* : une partie inactive au-delà du TTL est supprimée, une partie active est
@@ -187,7 +194,7 @@ Deux contextes de navigateur séparés, une partie créée, un code, une jointur
 vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
 la négociation ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 196 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 304 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**
@@ -248,7 +255,7 @@ fenêtre de navigation privée.
 | Fenêtre B : réglages | Boutons visibles mais **inertes**, mention « Seul l'hôte peut les changer » |
 | Fenêtre A : passer les manches à 8 | La fenêtre B bascule sur 8 en moins d'une seconde |
 | Fenêtre B : entrer le pseudo « sarah » | Erreur rose « pseudo déjà pris », suggestion `sarah2` **pré-remplie** dans le champ |
-| Bouton `LANCER LA PARTIE` | Visible chez l'hôte seulement ; désactivé sous 3 joueurs avec « Encore 1 joueur… » |
+| Bouton `LANCER LA PARTIE` | Visible chez l'hôte seulement ; désactivé tant que l'hôte est seul (« Encore 1 joueur… »), actif dès que B est entré |
 
 ### 2.6 Une manche complète
 

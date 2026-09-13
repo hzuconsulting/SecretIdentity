@@ -1,10 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, type ReactNode } from 'react';
 import type { PlayerView } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
-import { SoundToggle } from '@/components/ui/SoundToggle';
+import { GameChromeBar } from './GameChrome';
 import { Timer } from './Timer';
 
 interface PhaseShellProps {
@@ -19,9 +18,13 @@ interface PhaseShellProps {
 /**
  * Cadre commun à tous les écrans de manche.
  *
- * Il porte les trois repères dont on a besoin en permanence : où on en est
- * dans la partie, combien de temps il reste, et comment retrouver les règles.
- * Le contenu propre à la phase vit dans `children`.
+ * Il porte les repères dont on a besoin en permanence : le code de la partie
+ * (pour qui doit revenir), les règles, le son et le menu — c'est la barre du
+ * haut, fournie par `GameChrome` — puis où on en est dans la partie et combien
+ * de temps il reste. Le contenu propre à la phase vit dans `children`.
+ *
+ * « Règles » ouvre un panneau **par-dessus** l'écran : rien n'est démonté, un
+ * boîtier en cours de remplissage est intact à la fermeture.
  */
 export function PhaseShell({ view, title, children, hideTimer = false }: PhaseShellProps) {
   const { play } = useSound();
@@ -33,30 +36,27 @@ export function PhaseShell({ view, title, children, hideTimer = false }: PhaseSh
   }, [view.phase, view.roundNumber, play]);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 py-6">
-      <header className="flex items-center justify-between gap-3">
-        <div>
-          <p className="font-display text-xs font-extrabold uppercase tracking-widest text-muted">
-            Manche {view.roundNumber} / {view.totalRounds}
-          </p>
-          <h1 className="font-display text-2xl font-black uppercase leading-none tracking-tight">
-            {title}
-          </h1>
-        </div>
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <div className="flex flex-col gap-4">
+        <GameChromeBar />
 
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col items-end gap-0.5">
-            {hideTimer ? null : <Timer phaseEndsAt={view.phaseEndsAt} />}
-            <Link
-              href="/comment-jouer"
-              className="font-display text-[0.65rem] font-extrabold uppercase tracking-widest text-violet"
-            >
-              Règles
-            </Link>
+        <header className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-display text-xs font-extrabold uppercase tracking-widest text-muted">
+              Manche {view.roundNumber} / {view.totalRounds}
+            </p>
+            <h1 className="font-display text-2xl font-black uppercase leading-none tracking-tight">
+              {title}
+            </h1>
           </div>
-          <SoundToggle />
-        </div>
-      </header>
+
+          {hideTimer ? null : (
+            <div className="shrink-0">
+              <Timer phaseEndsAt={view.phaseEndsAt} />
+            </div>
+          )}
+        </header>
+      </div>
 
       {children}
     </main>

@@ -311,14 +311,22 @@ export function useGameConnection(code: string): GameConnection {
     [send],
   );
 
+  const phase = view?.phase ?? null;
+
   const leave = useCallback(async (): Promise<void> => {
     await send(CLIENT_EVENTS.leave, {});
-    clearSession(code);
+
+    // En pleine partie, le moteur garde la place du joueur qui part : on garde
+    // donc aussi sa session, pour que rouvrir le lien de la partie suffise à
+    // revenir. Au salon — la place est libérée — et à la fin, elle ne sert plus.
+    const inProgress = phase !== null && phase !== 'LOBBY' && phase !== 'FINAL_RESULTS';
+    if (!inProgress) clearSession(code);
+
     // Départ explicite : le nœud se ferme, et l'hôte efface sa sauvegarde pour
     // qu'une partie terminée ne ressuscite pas au prochain chargement.
     closeCurrent();
     setNode(null);
-  }, [code, send]);
+  }, [code, send, phase]);
 
   const dismissError = useCallback(() => setError(null), []);
 

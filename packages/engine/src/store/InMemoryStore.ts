@@ -52,7 +52,17 @@ export class InMemoryStore implements GameStore {
   async findBySessionToken(
     sessionToken: string,
   ): Promise<{ game: Game; playerId: PlayerId } | undefined> {
-    return this.lookup(this.sessions, sessionToken);
+    const found = this.lookup(this.sessions, sessionToken);
+
+    // Le joueur existe encore, mais ce jeton est-il toujours le sien ? Une
+    // reprise de place par pseudo lui en donne un neuf : l'ancien — resté sur un
+    // téléphone perdu ou prêté — ne doit plus rien ouvrir.
+    if (found && found.game.players.get(found.playerId)?.sessionToken !== sessionToken) {
+      this.sessions.delete(sessionToken);
+      return undefined;
+    }
+
+    return found;
   }
 
   async findBySessionCommitment(

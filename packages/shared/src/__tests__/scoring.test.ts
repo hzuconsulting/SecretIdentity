@@ -105,6 +105,29 @@ describe('scoreRound — 3 joueurs', () => {
   });
 });
 
+describe('scoreRound — 2 joueurs', () => {
+  /**
+   * À deux, chaque bonne réponse rapporte un point à chacun : l'un pour avoir
+   * trouvé, l'autre pour s'être fait deviner. Les totaux sont donc toujours
+   * égaux, et ce sont les cartes gardées qui départagent.
+   */
+  it.each([
+    ['personne ne trouve', { p1: { p2: 5 }, p2: { p1: 6 } }, 0],
+    ['seul p1 trouve', { p1: { p2: 2 }, p2: { p1: 6 } }, 1],
+    ['seul p2 trouve', { p1: { p2: 5 }, p2: { p1: 1 } }, 1],
+    ['les deux trouvent', { p1: { p2: 2 }, p2: { p1: 1 } }, 2],
+  ])('donne le même total aux deux quand %s', (_, votes, total) => {
+    const scores = scoreRound(buildRound(2, votes));
+
+    expect(scores.p1!.total).toBe(total);
+    expect(scores.p2!.total).toBe(total);
+  });
+
+  it('plafonne à 2 points par manche', () => {
+    expect(maxRoundScore(2)).toBe(2);
+  });
+});
+
 describe('scoreRound — 8 joueurs', () => {
   it('plafonne à N−1 dans chaque colonne', () => {
     const votes: Record<string, Record<string, number>> = {};

@@ -4,6 +4,7 @@ import {
   STARTING_HAND_CARDS,
   TOTAL_ROUNDS,
   dealPictoCards,
+  resolveTimer,
   type Game,
   type Phase,
   type PhaseChangedPayload,
@@ -54,6 +55,11 @@ export interface EngineDeps {
    * `setTimeout` s'enchaînent dans le bon ordre.
    */
   timeScale?: number;
+}
+
+/** Participants de la manche en cours — ceux qui ont un boîtier à remplir. */
+function participantCount(game: Game): number {
+  return currentRound(game)?.assignments.size ?? game.players.size;
 }
 
 /** Convertit un réglage en secondes vers des millisecondes. `null` = sans limite. */
@@ -176,11 +182,13 @@ export class GameEngine {
         // Durée fixe : le temps de lire son personnage.
         return IDENTITY_REVEAL_MS;
 
+      // `auto` se résout ici, à l'entrée de la phase, sur le nombre de
+      // participants de la manche : c'est lui qui fait le travail à accomplir.
       case 'CLUE_SELECTION':
-        return toMs(game.settings.clueSeconds);
+        return toMs(resolveTimer(game.settings.clueSeconds, 'clue', participantCount(game)));
 
       case 'GUESSING':
-        return toMs(game.settings.guessSeconds);
+        return toMs(resolveTimer(game.settings.guessSeconds, 'guess', participantCount(game)));
 
       // Pas d'échéance après une manche : c'est le moment où l'on regarde qui a
       // voté quoi, qui portait quel personnage, et on en parle. Un minuteur

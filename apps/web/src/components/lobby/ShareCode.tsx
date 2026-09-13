@@ -83,8 +83,15 @@ export function ShareCode({ code }: ShareCodeProps) {
       </p>
 
       <div className="mt-5 flex gap-2">
-        <Button variant="soft" size="md" onClick={() => void copyCode()}>
-          Copier le code
+        {/* « Copier le code » passait sur deux lignes à 390 px : le code est affiché
+            juste au-dessus, « Copier » suffit — l'intitulé complet reste lu. */}
+        <Button
+          variant="soft"
+          size="md"
+          aria-label="Copier le code"
+          onClick={() => void copyCode()}
+        >
+          Copier
         </Button>
         <Button variant="accent" size="md" onClick={() => void share()}>
           Partager

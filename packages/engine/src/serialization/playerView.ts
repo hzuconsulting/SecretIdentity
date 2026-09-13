@@ -52,6 +52,7 @@ export function toPublicPlayer(game: Game, playerId: PlayerId): PublicPlayer | n
     // voit bien la main de l'autre fondre sans voir ce qu'elle contient.
     cardsLeft: player.hand.length,
     connected: player.connected,
+    away: player.away === true,
     isHost: game.hostId === player.id,
   };
 }

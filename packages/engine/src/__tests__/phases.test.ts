@@ -6,10 +6,13 @@ import {
   SERVER_EVENTS,
   STARTING_HAND_CARDS,
   TOTAL_ROUNDS,
+  autoClueSeconds,
+  autoGuessSeconds,
   type PhaseChangedPayload,
   type PlayerView,
 } from '@identite-secrete/shared';
 import {
+  TEST_TIME_SCALE,
   TestClient,
   containsValue,
   startTestServer,
@@ -91,16 +94,30 @@ afterEach(async () => {
 // ─────────────────────────────────────────────────────────────
 
 describe('lancement de la partie', () => {
-  it('refuse le lancement sous 3 joueurs', async () => {
+  it('refuse le lancement à l’hôte seul', async () => {
     const host = await connect();
-    const { code } = await host.createGame('Sarah');
-    const guest = await connect();
-    await guest.joinGame(code, 'Allan');
+    await host.createGame('Sarah');
 
     const response = await host.emit(CLIENT_EVENTS.startGame, {});
 
     expect(response.ok).toBe(false);
     if (!response.ok) expect(response.error.code).toBe('NOT_ENOUGH_PLAYERS');
+  });
+
+  it('lance dès 2 joueurs, sur un plateau de 8 dont 6 leurres', async () => {
+    const { code, players } = await startedGame(2);
+
+    for (const client of players) {
+      await client.waitForView((v) => v.yourIdentityId !== undefined, 'personnage reçu');
+      expect(client.lastView.board).toHaveLength(BOARD_SIZE);
+    }
+
+    const game = await server.store.get(code);
+    const round = game!.rounds[0]!;
+    expect(round.assignments.size).toBe(2);
+    const slots = new Set([...round.assignments.values()].map((a) => a.slot));
+    expect(slots.size).toBe(2);
+    expect(BOARD_SIZE - slots.size).toBe(6);
   });
 
   it('refuse le lancement par un non-hôte', async () => {
@@ -214,6 +231,20 @@ describe('attribution de la manche', () => {
 // ─────────────────────────────────────────────────────────────
 
 describe('transitions et échéances', () => {
+  it('règle « Auto » selon le nombre de joueurs de la manche', async () => {
+    // Réglages par défaut : les deux durées sont en « Auto ».
+    const { players } = await startedGame(4);
+    const host = players[0]!;
+
+    const clue = await host.waitForView((v) => v.phase === 'CLUE_SELECTION', 'pose', 8_000);
+    const clueMs = clue.phaseEndsAt! - clue.serverTime;
+    expect(clueMs).toBe(Math.round(autoClueSeconds(4) * 1_000 * TEST_TIME_SCALE));
+
+    const vote = await host.waitForView((v) => v.phase === 'GUESSING', 'vote', 8_000);
+    const voteMs = vote.phaseEndsAt! - vote.serverTime;
+    expect(voteMs).toBe(Math.round(autoGuessSeconds(4) * 1_000 * TEST_TIME_SCALE));
+  });
+
   it('enchaîne automatiquement IDENTITY_REVEAL → CLUE_SELECTION', async () => {
     const { players } = await startedGameLobby();
     const host = players[0]!;

@@ -23,7 +23,7 @@ function snapshot(epoch: number, seq: number): RelaySnapshot {
     hostId: 'p1',
     phase: 'LOBBY',
     currentRound: 0,
-    settings: { clueSeconds: 60, guessSeconds: 60, difficulty: 'medium' },
+    settings: { clueSeconds: 60, guessSeconds: 60, difficulty: 'medium', visibility: 'public' },
     players: [],
     rounds: [],
     usedIdentityIds: [],

@@ -546,6 +546,7 @@ describe('confidentialité des payloads', () => {
     const other = view.players.find((p) => p.nickname === 'Allan');
 
     expect(Object.keys(other ?? {}).sort()).toEqual([
+      'away',
       'cardsLeft',
       'connected',
       'id',

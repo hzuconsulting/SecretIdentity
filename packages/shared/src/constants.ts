@@ -1,10 +1,14 @@
-import type { DifficultySetting, Settings, TimerSeconds } from './types';
+import type { DifficultySetting, GameVisibility, Settings, TimerSetting } from './types';
 
 // ─────────────────────────────────────────────────────────────
 //  Joueurs
 // ─────────────────────────────────────────────────────────────
 
-export const MIN_PLAYERS = 3;
+/**
+ * Seuil de lancement **et** de pause. Le livret dit 3 ; on lance dès 2 pour
+ * ne pas renvoyer un duo au salon. Voir DECISIONS.md, « Lancement dès 2 joueurs ».
+ */
+export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
 export const MIN_NICKNAME_LENGTH = 1;
@@ -25,7 +29,7 @@ export const CODE_LENGTH = 5;
 /**
  * Nombre de personnages exposés au centre, et donc de numéros possibles.
  *
- * **Toujours 8, quel que soit le nombre de joueurs.** À trois joueurs, cinq
+ * **Toujours 8, quel que soit le nombre de joueurs.** À deux joueurs, six
  * numéros ne correspondent à personne : ce sont ces leurres qui empêchent de
  * trouver par élimination.
  */
@@ -49,7 +53,21 @@ export const MAX_PICTOS = 3;
 //  Paramètres : options proposées dans le salon
 // ─────────────────────────────────────────────────────────────
 
-export const TIMER_OPTIONS: readonly TimerSeconds[] = [30, 45, 60, 90, null] as const;
+/**
+ * Durées proposées dans le salon. `auto` d'abord, et par défaut : elle s'adapte
+ * au nombre de joueurs, ce qu'aucune valeur fixe ne sait faire.
+ */
+export const TIMER_OPTIONS: readonly TimerSetting[] = [
+  'auto',
+  30,
+  60,
+  90,
+  120,
+  180,
+  300,
+  null,
+] as const;
+export const VISIBILITY_OPTIONS: readonly GameVisibility[] = ['public', 'private'] as const;
 export const DIFFICULTY_OPTIONS: readonly DifficultySetting[] = [
   'easy',
   'medium',
@@ -58,9 +76,10 @@ export const DIFFICULTY_OPTIONS: readonly DifficultySetting[] = [
 ] as const;
 
 export const DEFAULT_SETTINGS: Settings = {
-  clueSeconds: 60,
-  guessSeconds: 60,
+  clueSeconds: 'auto',
+  guessSeconds: 'auto',
   difficulty: 'medium',
+  visibility: 'public',
 };
 
 // ─────────────────────────────────────────────────────────────

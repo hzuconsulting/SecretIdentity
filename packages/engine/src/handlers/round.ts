@@ -252,6 +252,13 @@ const replay: EventHandler = (ctx, payload) =>
     // Mêmes joueurs, mêmes réglages, scores remis à zéro. `usedIdentityIds` est
     // **conservé** : sinon la partie suivante commencerait souvent par
     // redistribuer les identités qu'on vient de jouer (§9).
+    //
+    // Les absents, eux, ne suivent pas au salon : leur place n'était gardée que
+    // pour la partie qui vient de finir, et un salon plein de fantômes
+    // empêcherait d'autres joueurs d'entrer.
+    for (const player of [...game.players.values()]) {
+      if (player.away) game.players.delete(player.id);
+    }
     for (const player of game.players.values()) player.score = 0;
     game.rounds = [];
     game.currentRound = 0;

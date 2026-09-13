@@ -7,8 +7,10 @@ import {
   MAX_PICTOS,
   MIN_NICKNAME_LENGTH,
   MIN_PICTOS,
+  MIN_PLAYERS,
   STARTING_HAND_CARDS,
   TIMER_OPTIONS,
+  VISIBILITY_OPTIONS,
 } from './constants';
 import { normalizeGameCode } from './gameCode';
 import type { Ack, GameError, GameErrorCode, PlayerView, Phase } from './types';
@@ -72,11 +74,19 @@ export const rejoinGameSchema = z.object({
   sessionToken: z.string().min(10).max(200),
 });
 
+/**
+ * `45` n'est plus proposé mais reste accepté : une partie sauvegardée ou un
+ * instantané de relais d'avant l'élargissement des durées doit rester lisible.
+ */
 const timerSchema = z.union([
+  z.literal('auto'),
   z.literal(30),
   z.literal(45),
   z.literal(60),
   z.literal(90),
+  z.literal(120),
+  z.literal(180),
+  z.literal(300),
   z.null(),
 ]);
 
@@ -84,6 +94,9 @@ export const settingsSchema = z.object({
   clueSeconds: timerSchema,
   guessSeconds: timerSchema,
   difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
+  // Absent des réglages d'avant l'annuaire des parties : ceux-là étaient publics
+  // de fait, puisqu'il suffisait du code.
+  visibility: z.enum(['public', 'private']).default('public'),
 });
 
 export const updateSettingsSchema = settingsSchema.partial().refine(
@@ -135,6 +148,7 @@ export type PingPayload = z.infer<typeof pingSchema>;
 export const SETTINGS_OPTIONS = {
   clueSeconds: TIMER_OPTIONS,
   guessSeconds: TIMER_OPTIONS,
+  visibility: VISIBILITY_OPTIONS,
   difficulty: DIFFICULTY_OPTIONS,
 } as const;
 
@@ -180,7 +194,7 @@ const ERROR_MESSAGES: Record<GameErrorCode, string> = {
   INVALID_CODE: 'Ce code est invalide.',
   NOT_HOST: "Seul l'hôte peut faire ça.",
   WRONG_PHASE: "Ce n'est pas le moment de faire ça.",
-  NOT_ENOUGH_PLAYERS: 'Il faut au moins 3 joueurs pour lancer.',
+  NOT_ENOUGH_PLAYERS: `Il faut au moins ${MIN_PLAYERS} joueurs pour lancer.`,
   INVALID_PAYLOAD: 'Requête invalide.',
   CARD_NOT_IN_HAND: "Cette carte n'est pas dans ta main.",
   TOO_MANY_CLUES: `Tu ne peux poser que ${MAX_PICTOS} pictogrammes.`,

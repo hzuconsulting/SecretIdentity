@@ -63,7 +63,37 @@ export function onNodeReplaced(listener: (node: GameNode) => void): () => void {
 function replaceNode(node: GameNode): void {
   current = node;
   stopWatching();
+  // Le nœud adopté fait tourner le moteur ; notre propre joueur doit s'y
+  // présenter, que l'écran de jeu soit monté ou non.
+  rebindSession(node);
   for (const listener of [...nodeListeners]) listener(node);
+}
+
+/**
+ * Présente la session de cet appareil au nœud, si on en a une.
+ *
+ * Doublon inoffensif avec la reprise que fait l'écran de jeu quand il est monté :
+ * le moteur rattache deux fois le même canal au même joueur, sans autre effet.
+ */
+function rebindSession(node: GameNode): void {
+  const session = loadSession(node.code);
+  if (!session) return;
+  void node.emit(CLIENT_EVENTS.rejoinGame, { sessionToken: session.sessionToken });
+}
+
+/**
+ * Garde la session rattachée à chaque reconnexion d'un invité.
+ *
+ * Un canal qui se rouvre — écran verrouillé, passage Wi-Fi / 4G, canal muet
+ * fermé par le battement — n'est rattaché à aucun joueur tant qu'on ne s'est
+ * pas présenté. Seul l'écran de jeu le faisait ; or on peut être ailleurs dans
+ * l'application : sur les règles, sur l'accueil. L'hôte voyait alors un canal
+ * anonyme, déclarait le joueur absent, et il cessait d'être servi. Le nœud
+ * survit à la navigation : c'est donc à lui de s'en charger.
+ */
+function bindSessionOnReconnect(node: GameNode): void {
+  if (node.hosting) return;
+  node.on('connect', () => rebindSession(node));
 }
 
 function stopWatching(): void {
@@ -134,6 +164,7 @@ async function open(code: string): Promise<GameNode> {
 
   current = node;
   armMigration(node);
+  bindSessionOnReconnect(node);
   return node;
 }
 
