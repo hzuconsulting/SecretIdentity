@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLIENT_EVENTS,
+  IDENTITY_BY_ID,
   MAX_PLAYERS,
   TOTAL_ROUNDS,
   cardIcons,
@@ -120,6 +121,12 @@ describe('confidentialité de l’instantané', () => {
         for (const card of player.hand) {
           expect(containsValue(snapshot, card.id), `carte de ${player.nickname}`).toBe(false);
           for (const icon of cardIcons(card)) {
+            // Quatre pictogrammes portent le même identifiant qu'un personnage
+            // (`alien`, `link`, `kiss`, `prince`) : si ce personnage a été tiré,
+            // on le retrouve — public — dans les identités déjà vues, et le test
+            // criait à la fuite selon le tirage. L'identifiant de la carte, lui,
+            // reste vérifié ci-dessus, et le nom `hand` plus bas.
+            if (IDENTITY_BY_ID.has(icon)) continue;
             expect(containsValue(snapshot, icon), `pictogramme de ${player.nickname}`).toBe(
               false,
             );
