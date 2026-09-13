@@ -10,16 +10,17 @@ import { BASE_PATH } from './config';
  * peut-être le visage. La liste est calculée **hors ligne** et publiée à côté
  * du site, dans `public/portraits.json` :
  *
- *   { v: 1, generatedAt, portraits: { <identityId>: { f, h, a, l, u?, p } } }
+ *   { v: 1, generatedAt, portraits: { <identityId>: { f, h, a, l, u?, p, i } } }
  *
  * Ce fichier n'est **jamais** importé dans le code : il pèse plusieurs dizaines
  * de kilo-octets, et seules les pages qui montrent un personnage en ont besoin.
  * Il est lu une fois par page, à la première demande, puis gardé en mémoire.
  *
  * Deux règles tiennent tout le reste :
- *  - le téléphone n'interroge **jamais** les API de Wikipédia ou de Wikidata —
- *    elles brident les appels rapprochés. Il ne charge que des vignettes, sur
- *    `upload.wikimedia.org`, à une adresse qu'il calcule lui-même ;
+ *  - le téléphone ne contacte **jamais** Wikimedia. Les photos sont rapatriées
+ *    une fois, recadrées, et livrées avec le site (`public/portraits/`) : une
+ *    tablée sur un même wifi, huit photos par manche et par téléphone, se
+ *    ferait vite refuser par Commons (429) ;
  *  - un portrait n'est jamais nécessaire pour jouer. Fichier absent, illisible,
  *    réseau coupé : on retombe sur une carte vide, et l'écran montre l'initiale.
  *    Rien ici ne lève d'erreur vers l'appelant.
@@ -39,12 +40,14 @@ export interface PortraitEntry {
   u?: string;
   /** Page du fichier sur Wikimedia Commons. */
   p: string;
+  /**
+   * Empreinte de la photo livrée avec le site. Elle entre dans son nom : une
+   * photo changée change d'adresse, et un cache ne sert jamais l'ancienne.
+   */
+  i: string;
 }
 
 export type PortraitMap = ReadonlyMap<string, PortraitEntry>;
-
-/** Largeurs de vignette demandées à Commons. Deux seulement : elles se partagent le cache. */
-export type PortraitWidth = 120 | 250;
 
 const PORTRAITS_VERSION = 1;
 
@@ -125,6 +128,7 @@ const entrySchema = z
       .string()
       .max(1_024)
       .refine((value) => isHttpUrl(value, 'commons.wikimedia.org'), 'page Commons'),
+    i: z.string().regex(/^[0-9a-f]{10}$/),
   })
   .strict();
 
@@ -167,13 +171,14 @@ export function parsePortraitsFile(raw: unknown): Map<string, PortraitEntry> {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Vignette Commons d'une entrée.
+ * La photo d'un personnage, livrée avec le site : un carré de 192 px en WebP,
+ * assez pour la grande carte (96 px) sur un écran 2×.
  *
- * L'adresse est calculée, jamais demandée à une API : c'est le schéma fixe des
- * vignettes de Commons, `thumb/<h>/<fichier>/<largeur>px-<fichier>`.
+ * L'identifiant n'entre dans le chemin qu'après validation (`IDENTITY_ID`) :
+ * pas de `/`, pas de `.`, il ne peut pas en sortir.
  */
-export function portraitUrl(entry: Pick<PortraitEntry, 'f' | 'h'>, width: PortraitWidth): string {
-  return `https://upload.wikimedia.org/wikipedia/commons/thumb/${entry.h}/${entry.f}/${width}px-${entry.f}`;
+export function portraitUrl(identityId: string, entry: Pick<PortraitEntry, 'i'>): string {
+  return `${BASE_PATH}/portraits/${identityId}.${entry.i}.webp`;
 }
 
 // ─────────────────────────────────────────────────────────────

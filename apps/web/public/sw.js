@@ -13,9 +13,8 @@
  *    mettre en cache : ce sont des flux temps réel entre deux téléphones ;
  *  - il laisse passer le service de mise en relation, servi par une autre
  *    origine, sans y toucher ;
- *  - une seule exception aux autres origines : les **vignettes de portraits**
- *    de Wikimedia Commons, gardées dans un cache à part et borné, pour qu'un
- *    personnage déjà vu garde son visage hors ligne ;
+ *  - il garde les **portraits** des personnages dans un cache à part et borné,
+ *    pour qu'un personnage déjà vu garde son visage hors ligne ;
  *  - il sert le réseau en priorité pour les pages, et ne retombe sur le cache
  *    que si le réseau échoue. Une version périmée de l'interface face à des
  *    joueurs à jour serait pire qu'une page d'erreur.
@@ -24,25 +23,25 @@
 // Incrémenté à chaque correctif qui doit absolument atteindre les appareils
 // déjà installés : `activate` supprime tout cache dont la clé ne commence pas
 // par cette valeur.
-const VERSION = 'identite-secrete-v3';
+const VERSION = 'identite-secrete-v4';
 const SHELL = `${VERSION}-shell`;
 
 /**
- * Portraits des personnages : vignettes Wikimedia Commons.
+ * Portraits des personnages : `portraits/<id>.<empreinte>.webp`.
  *
  * Cache à part, **borné** : un plateau montre huit personnages par manche, et
- * le catalogue en compte plus de mille. Sans limite, des soirées de jeu
- * finiraient par occuper des dizaines de mégaoctets sur le téléphone. Au-delà
- * de la limite, les plus anciens sortent en premier.
+ * le catalogue en compte près de mille. Sans limite, les soirées de jeu
+ * finiraient par tout copier sur le téléphone. Au-delà de la limite, les plus
+ * anciens sortent en premier.
+ *
+ * Le nom porte l'empreinte du contenu : une photo changée change d'adresse. On
+ * peut donc servir le cache d'abord sans jamais montrer une photo périmée.
  */
 const PORTRAITS = `${VERSION}-portraits`;
 const PORTRAIT_LIMIT = 300;
 
 function isPortrait(url) {
-  return (
-    url.hostname === 'upload.wikimedia.org' &&
-    url.pathname.startsWith('/wikipedia/commons/thumb/')
-  );
+  return /\/portraits\/[a-z0-9-]+\.[0-9a-f]{10}\.webp$/.test(url.pathname);
 }
 
 async function servePortrait(request) {
@@ -51,12 +50,7 @@ async function servePortrait(request) {
   if (hit) return hit;
 
   const response = await fetch(request);
-
-  // Seules les réponses CORS réussies entrent : l'image est demandée avec
-  // `crossorigin`, et Wikimedia répond `Access-Control-Allow-Origin: *`. Une
-  // réponse opaque (statut 0) cacherait une erreur et coûterait jusqu'à ~7 Mo
-  // de quota chacune dans Chrome.
-  if (response.ok && response.type === 'cors') {
+  if (response.ok && response.type === 'basic') {
     await cache.put(request, response.clone());
     void trimPortraits(cache);
   }
@@ -103,19 +97,18 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Portraits : cache d'abord — une vignette Commons ne change pas d'adresse
-  // sans changer de contenu.
+  // Tout ce qui n'est pas notre origine — au premier chef le service de mise en
+  // relation — passe sans être touché.
+  if (url.origin !== self.location.origin) return;
+
   if (isPortrait(url)) {
     event.respondWith(servePortrait(request));
     return;
   }
 
-  // Tout le reste qui n'est pas notre origine — au premier chef le service de
-  // mise en relation — passe sans être touché.
-  if (url.origin !== self.location.origin) return;
-
-  // Pages : réseau d'abord, cache en secours.
-  if (request.mode === 'navigate') {
+  // Pages, et la liste des portraits — qui garde la même adresse d'une version
+  // à l'autre : réseau d'abord, cache en secours.
+  if (request.mode === 'navigate' || url.pathname.endsWith('/portraits.json')) {
     event.respondWith(
       fetch(request)
         .then((response) => {
@@ -123,7 +116,13 @@ self.addEventListener('fetch', (event) => {
           caches.open(SHELL).then((cache) => cache.put(request, copy));
           return response;
         })
-        .catch(() => caches.match(request).then((hit) => hit || caches.match('./'))),
+        .catch(() =>
+          caches
+            .match(request)
+            // Une page inconnue retombe sur l'accueil ; la liste des portraits,
+            // elle, échoue franchement — l'écran montrera les initiales.
+            .then((hit) => hit || (request.mode === 'navigate' ? caches.match('./') : Response.error())),
+        ),
     );
     return;
   }

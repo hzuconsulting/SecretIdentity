@@ -25,6 +25,7 @@ function entry(overrides: Record<string, unknown> = {}): Record<string, unknown>
     l: 'CC BY-SA 3.0',
     u: 'https://creativecommons.org/licenses/by-sa/3.0',
     p: 'https://commons.wikimedia.org/wiki/File:Tom_Hanks_TIFF_2019.jpg',
+    i: '0123456789',
     ...overrides,
   };
 }
@@ -132,28 +133,28 @@ describe('lecture du fichier', () => {
   });
 });
 
-describe('adresse des vignettes', () => {
-  it('suit le schéma des vignettes Commons, nom de fichier inséré tel quel', () => {
-    const tom = { f: 'Tom_Hanks_TIFF_2019.jpg', h: 'a/ab' };
-    expect(portraitUrl(tom, 120)).toBe(
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tom_Hanks_TIFF_2019.jpg/120px-Tom_Hanks_TIFF_2019.jpg',
-    );
-    expect(portraitUrl(tom, 250)).toBe(
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tom_Hanks_TIFF_2019.jpg/250px-Tom_Hanks_TIFF_2019.jpg',
-    );
-
-    const encoded = { f: 'Emmanuel_Macron_%282017%29.jpg', h: 'f/f0' };
-    expect(portraitUrl(encoded, 120)).toBe(
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Emmanuel_Macron_%282017%29.jpg/120px-Emmanuel_Macron_%282017%29.jpg',
-    );
+describe('adresse des photos', () => {
+  it('pointe vers la photo livrée avec le site, empreinte comprise', () => {
+    expect(portraitUrl('tom-hanks', { i: '0123456789' })).toBe('/portraits/tom-hanks.0123456789.webp');
   });
 
-  it('reste sur upload.wikimedia.org pour toute entrée acceptée', () => {
-    const portraits = parsePortraitsFile(file({ 'tom-hanks': entry() }));
-    const url = new URL(portraitUrl(portraits.get('tom-hanks')!, 120));
-    expect(url.origin).toBe('https://upload.wikimedia.org');
-    expect(url.search).toBe('');
-    expect(url.hash).toBe('');
+  it.each([
+    ['une empreinte absente', { i: undefined }],
+    ['une empreinte trop courte', { i: '0123' }],
+    ['une empreinte qui sortirait du nom', { i: '../../x.js' }],
+    ['une empreinte en majuscules', { i: 'ABCDEF0123' }],
+  ])('écarte %s', (_label, overrides) => {
+    expect(parsePortraitsFile(file({ 'tom-hanks': entry(overrides) })).size).toBe(0);
+  });
+
+  it("ne sort jamais de /portraits/ : l'identifiant est validé avant", () => {
+    const portraits = parsePortraitsFile(
+      file({ 'tom-hanks': entry(), '../etc': entry(), 'a/b': entry(), 'x.y': entry() }),
+    );
+    expect([...portraits.keys()]).toEqual(['tom-hanks']);
+    expect(portraitUrl('tom-hanks', portraits.get('tom-hanks')!)).toMatch(
+      /^\/portraits\/[a-z0-9-]+\.[0-9a-f]{10}\.webp$/,
+    );
   });
 });
 

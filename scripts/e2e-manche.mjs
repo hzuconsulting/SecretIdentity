@@ -22,11 +22,19 @@ async function typeAfterHydration(page, selector, value) {
 
 const browser = await chromium.launch({ channel: 'chrome', headless: !process.env.HEADED });
 const erreurs = [];
+// Les portraits sont livrés avec le site : pendant une partie, aucun téléphone
+// ne doit contacter Wikimedia (D-85).
+const wikimedia = [];
 
 async function newPlayer(nom) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('pageerror', (e) => erreurs.push(`[${nom}] ${e.message}`));
+  page.on('request', (r) => {
+    if (/wikimedia\.org|wikipedia\.org|wikidata\.org/.test(new URL(r.url()).hostname)) {
+      wikimedia.push(`[${nom}] ${r.url()}`);
+    }
+  });
   return page;
 }
 
@@ -92,6 +100,30 @@ try {
     if (cases !== 8) throw new Error(`plateau de ${cases} personnages, attendu 8`);
   }
   ok('plateau de 8 personnages chez les 3 joueurs');
+
+  // Chaque case montre une photo ou, à défaut, l'initiale. Avec ~80 % du
+  // catalogue illustré, un plateau de 8 sans aucune photo trahirait une panne.
+  const plateau = host.locator('section[aria-labelledby="plateau-titre"]');
+  await plateau.locator('img').first().waitFor({ timeout: 20_000 });
+  // Chargement paresseux : une case sous le pli ne se chargerait jamais ici.
+  await plateau.locator('img').evaluateAll((imgs) => imgs.forEach((img) => (img.loading = 'eager')));
+  await host.waitForFunction(
+    () =>
+      [...document.querySelectorAll('section[aria-labelledby="plateau-titre"] img')].every(
+        (img) => img.complete,
+      ),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const photos = await plateau.locator('img').evaluateAll((imgs) =>
+    imgs.map((img) => ({ src: img.getAttribute('src'), ok: img.naturalWidth > 0 })),
+  );
+  const cassees = photos.filter((p) => !p.ok);
+  if (photos.some((p) => !/\/portraits\/[a-z0-9-]+\.[0-9a-f]{10}\.webp$/.test(p.src ?? ''))) {
+    throw new Error(`portrait servi hors du site : ${photos.map((p) => p.src).join(', ')}`);
+  }
+  if (cassees.length > 0) throw new Error(`portraits cassés : ${cassees.map((p) => p.src).join(', ')}`);
+  ok(`${photos.length} portrait(s) sur le plateau, servis par le site`);
 
   // -- Remplissage du boitier ----------------------------------
   for (const page of players) {
@@ -213,6 +245,21 @@ try {
   const handBack = await malo.getByRole('button', { name: /appuie pour poser/i }).count();
   if (handBack !== 32) throw new Error(`${handBack / 4} cartes au retour, attendu 8`);
   ok('Malo revient depuis l’accueil, dans la meme manche, avec sa main');
+
+  // -- Credits des photos ---------------------------------------
+  await zoe.goto(`${BASE}/credits/`, { waitUntil: 'load' });
+  await zoe.waitForFunction(
+    () => document.querySelectorAll('a[href^="https://commons.wikimedia.org/"]').length > 500,
+    undefined,
+    { timeout: 30_000 },
+  );
+  const credits = await zoe.locator('a[href^="https://commons.wikimedia.org/"]').count();
+  ok(`page Crédits : ${credits} photos attribuées`);
+
+  if (wikimedia.length > 0) {
+    throw new Error(`requetes vers Wikimedia pendant la partie :\n${wikimedia.slice(0, 5).join('\n')}`);
+  }
+  ok('aucune requete vers Wikimedia');
 
   if (erreurs.length > 0) throw new Error(`erreurs de page :\n${erreurs.join('\n')}`);
   console.log('\nOK - MANCHE COMPLETE, REGLES DU LIVRET RESPECTEES');

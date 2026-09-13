@@ -17,12 +17,13 @@
     "test:watch": "vitest",
     "test:e2e": "node scripts/e2e-partie.mjs",
     "test:e2e:manche": "node scripts/e2e-manche.mjs",
-    "portraits": "vite-node scripts/portraits/build.ts"
+    "portraits": "vite-node scripts/portraits/build.ts && node scripts/portraits/images.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "playwright-core": "^1.49.1",
     "typescript": "^5.7.2",
+    "vite-node": "^2.1.9",
     "vitest": "^2.1.8"
   },
   "engines": {

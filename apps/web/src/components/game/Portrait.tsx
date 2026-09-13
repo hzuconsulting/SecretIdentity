@@ -2,22 +2,20 @@
 
 import { useState } from 'react';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
-import { portraitUrl, usePortrait, type PortraitWidth } from '@/lib/portraits';
+import { portraitUrl, usePortrait } from '@/lib/portraits';
 
 export type PortraitSize = 'xs' | 'sm' | 'md' | 'lg';
 
 /**
- * Tailles affichées, en pixels CSS, et vignette demandée à Commons.
- *
- * Deux largeurs de vignette seulement, pour que le cache du service worker les
- * partage d'un écran à l'autre : 120 px couvre jusqu'à ~56 px affichés sur un
- * écran 2×, 250 px la grande carte Mystère.
+ * Tailles affichées, en pixels CSS. Un seul fichier par personnage (192 px) :
+ * il sert à toutes, et une photo vue sur le plateau est déjà en cache quand
+ * elle revient sur la carte.
  */
-const SIZES: Record<PortraitSize, { px: number; thumb: PortraitWidth }> = {
-  xs: { px: 20, thumb: 120 },
-  sm: { px: 32, thumb: 120 },
-  md: { px: 40, thumb: 120 },
-  lg: { px: 96, thumb: 250 },
+const SIZES: Record<PortraitSize, number> = {
+  xs: 20,
+  sm: 32,
+  md: 40,
+  lg: 96,
 };
 
 interface PortraitProps {
@@ -25,10 +23,7 @@ interface PortraitProps {
   /** Nom du personnage : sert à l'initiale de repli. Il est toujours écrit à côté. */
   name: string;
   size?: PortraitSize;
-  /**
-   * Taille affichée, quand aucune des quatre ne convient (carte Mystère
-   * compacte). La vignette reste celle de `size`.
-   */
+  /** Taille affichée, quand aucune des quatre ne convient (carte Mystère compacte). */
   px?: number;
   /** Fond sombre : la place réservée pendant le chargement s'éclaircit au lieu de s'assombrir. */
   onDark?: boolean;
@@ -53,8 +48,7 @@ export function Portrait({
   onDark = false,
   className,
 }: PortraitProps) {
-  const { px: defaultPx, thumb } = SIZES[size];
-  const box = px ?? defaultPx;
+  const box = px ?? SIZES[size];
 
   return (
     <span
@@ -69,7 +63,7 @@ export function Portrait({
       aria-hidden="true"
     >
       {/* Clé : un autre personnage repart de zéro, erreur de chargement comprise. */}
-      <PortraitImage key={identityId} identityId={identityId} name={name} box={box} thumb={thumb} />
+      <PortraitImage key={identityId} identityId={identityId} name={name} box={box} />
     </span>
   );
 }
@@ -78,10 +72,9 @@ interface PortraitImageProps {
   identityId: string;
   name: string;
   box: number;
-  thumb: PortraitWidth;
 }
 
-function PortraitImage({ identityId, name, box, thumb }: PortraitImageProps) {
+function PortraitImage({ identityId, name, box }: PortraitImageProps) {
   const { entry, ready } = usePortrait(identityId);
   const [failed, setFailed] = useState(false);
 
@@ -94,22 +87,18 @@ function PortraitImage({ identityId, name, box, thumb }: PortraitImageProps) {
   }
 
   // Un `<img>` nu plutôt que `next/image` : en export statique, il n'y a aucun
-  // serveur pour optimiser, et Commons sert déjà la bonne largeur.
+  // serveur pour optimiser, et la photo est déjà recadrée et réduite.
   return (
     <img
-      src={portraitUrl(entry, thumb)}
+      src={portraitUrl(identityId, entry)}
       alt=""
       width={box}
       height={box}
       loading="lazy"
       decoding="async"
-      // Commons répond `Access-Control-Allow-Origin: *` : en CORS, le service
-      // worker peut garder la vignette sans payer le prix d'une réponse opaque.
-      crossOrigin="anonymous"
-      referrerPolicy="no-referrer"
       draggable={false}
       onError={() => setFailed(true)}
-      className="h-full w-full object-cover object-[center_20%]"
+      className="h-full w-full object-cover"
     />
   );
 }

@@ -93,14 +93,14 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (357 tests) |
+| `npm test` | Suite Vitest complète (372 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
-| `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8, pose vert/rouge, vote, décompte |
+| `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8 avec portraits, pose vert/rouge, vote, décompte, crédits |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
 | `npm run build` | Build de production |
 | `npm run build:static` | Site statique dans `apps/web/out` |
-| `npm run portraits` | Recalcule `apps/web/public/portraits.json` depuis Wikidata et Commons (réseau, quelques minutes) |
+| `npm run portraits` | Recalcule les portraits depuis Wikidata et Commons, puis les rapatrie dans `apps/web/public/portraits/` (réseau ; quelques secondes avec le cache, ~30 min à froid) |
 
 ## Structure
 
@@ -134,7 +134,8 @@ identite-secrete/
 │       └── __tests__/        # Intégration : vraies parties, vrais minuteurs
 ├── apps/web/                 # Next.js App Router + Tailwind + Framer Motion
 │   ├── public/
-│   │   └── portraits.json    # Photos libres des personnages (généré, voir ci-dessous)
+│   │   ├── portraits.json    # Crédits et empreintes des photos (généré, voir ci-dessous)
+│   │   └── portraits/        # Photos des personnages, 192 px en WebP (généré)
 │   └── src/
 │       ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer, /credits
 │       ├── components/       # game/ (écrans de phase), lobby/, ui/
@@ -152,9 +153,11 @@ les appels rapprochés : les téléphones des joueurs ne l'interrogent jamais.
 `npm run portraits` parcourt le catalogue par lots (article frwiki → Wikidata → image
 Commons), ne garde que les licences libres (domaine public, CC0, CC BY, CC BY-SA), écrit
 `apps/web/public/portraits.json` et un rapport de couverture dans
-`scripts/portraits/report.md`. Un personnage mal trouvé se corrige dans
-`scripts/portraits/overrides.json`, puis on relance. Sans photo, le personnage garde son
-initiale.
+`scripts/portraits/report.md` (non versionné). Puis il rapatrie chaque photo, la recadre
+et la livre avec le site dans `apps/web/public/portraits/` : pendant une partie, aucun
+téléphone ne contacte Wikimedia. Un personnage mal trouvé se corrige dans
+`scripts/portraits/overrides.json`, puis on relance — les réponses déjà obtenues sont en
+cache, une relance prend quelques secondes. Sans photo, le personnage garde son initiale.
 
 **Le module le plus important est `packages/engine/src/serialization/playerView.ts`.**
 Tout ce qui part vers un joueur passe par lui, et il construit ses objets par liste
@@ -261,7 +264,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 357 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 372 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.
