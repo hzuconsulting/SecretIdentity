@@ -1,6 +1,6 @@
-import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import { BASE_PATH } from './config';
+import { createLazyStore } from './lazyStore';
 
 /**
  * Les portraits des personnages (D-85).
@@ -68,7 +68,7 @@ const FETCH_TIMEOUT_MS = 10_000;
  * Caractères de contrôle et de forçage du sens d'écriture : retirés des textes
  * affichés (auteur, licence), comme dans l'annuaire des parties.
  */
-const UNSAFE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+export const UNSAFE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 function cleanText(value: string): string {
   return value.replace(UNSAFE_CHARS, '').trim();
@@ -185,10 +185,6 @@ export function portraitUrl(identityId: string, entry: Pick<PortraitEntry, 'i'>)
 //  Chargement
 // ─────────────────────────────────────────────────────────────
 
-let pending: Promise<PortraitMap> | null = null;
-let loaded: PortraitMap | null = null;
-const listeners = new Set<() => void>();
-
 async function fetchPortraits(): Promise<PortraitMap> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -213,6 +209,8 @@ async function fetchPortraits(): Promise<PortraitMap> {
   }
 }
 
+const store = createLazyStore(fetchPortraits);
+
 /**
  * La liste des portraits, chargée une seule fois par page.
  *
@@ -220,41 +218,17 @@ async function fetchPortraits(): Promise<PortraitMap> {
  * garde, pour ne pas relancer la requête à chaque personnage affiché.
  */
 export function loadPortraits(): Promise<PortraitMap> {
-  if (!pending) {
-    pending = fetchPortraits().then((portraits) => {
-      loaded = portraits;
-      for (const listener of listeners) listener();
-      return portraits;
-    });
-  }
-  return pending;
+  return store.load();
 }
 
 /** Oublie la liste chargée. Réservé aux tests. */
 export function resetPortraitsCache(): void {
-  pending = null;
-  loaded = null;
-  listeners.clear();
+  store.reset();
 }
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  // S'abonner, c'est avoir besoin de la liste : le premier composant affiché
-  // déclenche le chargement, les suivants partagent la même requête.
-  void loadPortraits();
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-const getSnapshot = () => loaded;
-// Au rendu statique, la liste n'existe pas encore : la page part sans portrait,
-// et l'hydratation ne diverge pas.
-const getServerSnapshot = () => null;
 
 /** Toute la liste, ou `null` tant qu'elle n'est pas arrivée. */
 export function usePortraits(): PortraitMap | null {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return store.useValue();
 }
 
 /**

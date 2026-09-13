@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useDescription } from '@/lib/descriptions';
 import { Portrait } from './Portrait';
 
 interface IdentityCardProps {
   identityName: string;
-  /** Le personnage, pour son portrait. Masqué en même temps que le nom. */
+  /** Le personnage, pour son portrait et sa description. Masqués en même temps que le nom. */
   identityId?: string | null;
   /** Le numéro de la carte Mystère. Masqué en même temps que le nom. */
   slot?: number | null;
@@ -53,6 +54,7 @@ export function IdentityCard({
     };
   }, [peeking, stopPeeking]);
 
+  const description = useDescription(identityId);
   const visible = !masked || peeking;
   const portraitPx = compact ? PORTRAIT_PX.compact : PORTRAIT_PX.full;
 
@@ -100,6 +102,20 @@ export function IdentityCard({
             >
               {identityName}
             </p>
+            {/*
+              Qui est-ce, en une ligne (D-89) : lue sans rien toucher, puisque
+              c'est sa propre carte — et masquée avec elle, comme le nom.
+            */}
+            {description ? (
+              <p
+                className={[
+                  'mx-auto mt-2 max-w-xs font-semibold leading-snug text-white/75',
+                  compact ? 'text-sm' : 'text-base',
+                ].join(' ')}
+              >
+                {description}
+              </p>
+            ) : null}
           </>
         ) : (
           <>

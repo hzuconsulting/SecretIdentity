@@ -1386,6 +1386,33 @@ l'accueil ne charge plus `framer-motion`.
 
 ---
 
+### D-89 · Une ligne pour savoir qui est le personnage
+
+**Décision.** Chaque personnage du catalogue a une description très courte — ce qu'il est,
+d'où il vient, un repère marquant, 70 caractères au plus : « Suricate farceur du Roi
+lion, inséparable de Pumbaa ». Sur **sa propre carte**, elle s'écrit sous le nom, sans
+rien toucher, et se masque avec lui. Sur **le plateau**, chaque case devient un bouton qui
+ouvre une fiche par-dessus la partie (`IdentitySheet`, sur le `Sheet` des règles) : la
+photo en grand, le nom, le numéro, la description.
+
+Les textes sont écrits à la main, dans `apps/web/src/data/descriptions.json`, dans l'ordre
+du catalogue. Le fichier est chargé par un `import()` : un morceau de script à part, nommé
+par son empreinte, que le service worker garde comme les autres — la fiche marche hors
+ligne sans règle nouvelle. Un test impose une ligne par personnage, et aucune de trop.
+
+**Pourquoi.** « Les images ne sont pas suffisantes pour savoir qui est le personnage. » Un
+personnage sur cinq n'a pas de photo, et un visage ne dit pas d'où il sort. Demander à la
+tablée ralentit tout le monde — et pendant le remplissage du boîtier, demander qui est son
+propre personnage revient à le dévoiler. Toucher plutôt qu'afficher partout : les huit
+cases doublaient de hauteur, et le vote se jouait en défilant. Sur sa carte, en revanche,
+rien ne gêne, et c'est là qu'on en a le plus besoin.
+
+**Coût.** Environ 95 Ko de texte (moins de 40 compressés), chargés une fois. Ajouter un
+personnage demande désormais d'écrire aussi sa ligne. Les faits ont été relus, mais pas
+sourcés un à un : une erreur se corrige directement dans le fichier.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**

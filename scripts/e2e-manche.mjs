@@ -125,6 +125,31 @@ try {
   if (cassees.length > 0) throw new Error(`portraits cassés : ${cassees.map((p) => p.src).join(', ')}`);
   ok(`${photos.length} portrait(s) sur le plateau, servis par le site`);
 
+  // -- Qui est-ce ? (D-89) -------------------------------------
+  // Sur le boîtier, la carte Mystère porte sa description sous le nom, et chaque
+  // case du plateau s'ouvre sur une fiche : photo, nom, numéro, description.
+  await host.getByRole('heading', { level: 1, name: /^Ton boîtier$/i }).waitFor({
+    timeout: 30_000,
+  });
+  const carte = host.getByText(/^Ta carte Mystère$/i).locator('..');
+  // Libellé, nom, description : la troisième ligne n'arrive qu'avec le fichier.
+  await carte.locator('p').nth(2).waitFor({ timeout: 10_000 });
+  const [, nomCarte, descriptionCarte] = await carte.locator('p').allInnerTexts();
+  if (!descriptionCarte?.trim()) throw new Error('carte Mystère sans description');
+  ok(`carte Mystère décrite : ${nomCarte} — ${descriptionCarte}`);
+
+  await host.locator('section[aria-labelledby="plateau-titre"]').getByRole('button').first().click();
+  const fiche = host.getByRole('dialog');
+  await fiche.waitFor({ timeout: 10_000 });
+  // « Numéro 1 », puis la description.
+  await fiche.locator('p').nth(1).waitFor({ timeout: 10_000 });
+  const nomFiche = (await fiche.getByRole('heading').innerText()).trim();
+  const descriptionFiche = (await fiche.locator('p').nth(1).innerText()).trim();
+  if (!nomFiche || !descriptionFiche) throw new Error(`fiche incomplète : « ${nomFiche} »`);
+  await fiche.getByRole('button', { name: 'Fermer' }).click();
+  await fiche.waitFor({ state: 'detached', timeout: 5_000 });
+  ok(`fiche du numéro 1 : ${nomFiche} — ${descriptionFiche}`);
+
   // -- Remplissage du boitier ----------------------------------
   for (const page of players) {
     await page.getByRole('heading', { level: 1, name: /^Ton boîtier$/i }).waitFor({

@@ -139,10 +139,13 @@ identite-secrete/
 │   └── src/
 │       ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer, /credits
 │       ├── components/       # game/ (écrans de phase), lobby/, ui/
+│       ├── data/
+│       │   └── descriptions.json # Une ligne par personnage : qui c'est (écrit à la main)
 │       ├── hooks/            # useGameConnection, useServerClock, useSound
 │       └── lib/
 │           ├── net/          # hostNode, guestNode, peer, protocol, hostStorage
 │           ├── portraits.ts  # Chargement paresseux et validé des portraits
+│           ├── descriptions.ts # Chargement paresseux des descriptions
 │           ├── session.ts    # Sessions localStorage
 │           └── sound.ts      # Web Audio
 └── scripts/portraits/        # Générateur hors ligne des portraits + corrections manuelles
@@ -158,6 +161,11 @@ et la livre avec le site dans `apps/web/public/portraits/` : pendant une partie,
 téléphone ne contacte Wikimedia. Un personnage mal trouvé se corrige dans
 `scripts/portraits/overrides.json`, puis on relance — les réponses déjà obtenues sont en
 cache, une relance prend quelques secondes. Sans photo, le personnage garde son initiale.
+
+**Chaque personnage a aussi une ligne qui dit qui c'est** (D-89), écrite à la main dans
+`apps/web/src/data/descriptions.json`, dans l'ordre du catalogue. Elle s'affiche sous le
+nom de sa carte Mystère, et dans la fiche qui s'ouvre quand on touche une case du plateau.
+Ajouter un personnage demande d'ajouter sa ligne : `npm test` le vérifie.
 
 **Le module le plus important est `packages/engine/src/serialization/playerView.ts`.**
 Tout ce qui part vers un joueur passe par lui, et il construit ses objets par liste

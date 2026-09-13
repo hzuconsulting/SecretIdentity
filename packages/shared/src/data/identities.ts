@@ -11,7 +11,11 @@ import type { Identity } from '../types';
  *    l'accompagner (D-85) : il vient de Wikimedia Commons, est généré hors
  *    ligne par `scripts/portraits/build.ts` dans `apps/web/public/portraits.json`,
  *    et reste facultatif — sans lui, l'écran montre une initiale.
- *  - Pour ajouter une identité, ajoutez une ligne dans la bonne section.
+ *  - Chaque identité a une description d'une ligne, qui dit qui c'est
+ *    (D-89) : `apps/web/src/data/descriptions.json`, dans le même ordre
+ *    qu'ici. Un test refuse une identité sans la sienne.
+ *  - Pour ajouter une identité, ajoutez une ligne dans la bonne section — et
+ *    sa description.
  *  - Le champ `packs` est optionnel ; une identité sans `packs` appartient
  *    au pack `base` (cf. `IDENTITY_PACKS` plus bas).
  *

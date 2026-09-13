@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { getIdentity, type IdentityId, type Slot } from '@identite-secrete/shared';
+import { IdentitySheet } from './IdentitySheet';
 import { Portrait } from './Portrait';
 
 interface BoardGridProps {
@@ -22,6 +24,9 @@ interface BoardGridProps {
  *
  * Le plateau est public — au centre de la table, les cartes sont face visible.
  * Ce qui est secret, c'est qui porte quel numéro.
+ *
+ * Chaque case s'ouvre sur une fiche qui dit qui est le personnage (D-89) : on
+ * ne demande plus à la tablée qui est ce nom inconnu.
  */
 export function BoardGrid({
   board,
@@ -29,14 +34,19 @@ export function BoardGrid({
   highlightLabel = 'ton personnage',
   compact = false,
 }: BoardGridProps) {
+  // Le personnage montré survit à la fermeture : la fiche redescend pleine.
+  const [shown, setShown] = useState<{ identityId: IdentityId; slot: Slot } | null>(null);
+  const [open, setOpen] = useState(false);
+
   return (
     <section aria-labelledby="plateau-titre">
       <h2
         id="plateau-titre"
-        className="mb-2 font-display text-xs font-extrabold uppercase tracking-widest text-muted"
+        className="font-display text-xs font-extrabold uppercase tracking-widest text-muted"
       >
         Les {board.length} personnages
       </h2>
+      <p className="mb-2 text-xs text-muted">Touche un personnage pour savoir qui c&apos;est</p>
 
       <ul className="grid grid-cols-2 gap-2">
         {board.map((identityId, index) => {
@@ -46,12 +56,19 @@ export function BoardGrid({
 
           return (
             <li key={`${slot}-${identityId}`}>
-              <div
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setShown({ identityId, slot });
+                  setOpen(true);
+                }}
                 className={[
                   // Pastille, portrait, nom : ~150 px de large sur un téléphone
                   // de 390 px. Écarts serrés pour laisser au nom de quoi tenir
                   // sur deux lignes.
-                  'flex items-center gap-1.5 rounded-tile bg-white px-2 shadow-tile',
+                  'flex h-full w-full items-center gap-1.5 rounded-tile bg-white px-2 text-left shadow-tile',
+                  'active:translate-y-0.5 active:shadow-tile-active',
                   compact ? 'py-2' : 'py-3',
                   // Deux signaux pour la mise en avant, jamais la couleur seule
                   // (§7.4) : l'anneau *et* la pastille numérotée qui change.
@@ -84,11 +101,18 @@ export function BoardGrid({
                   {name}
                   {isHighlighted ? <span className="sr-only"> — {highlightLabel}</span> : null}
                 </span>
-              </div>
+              </button>
             </li>
           );
         })}
       </ul>
+
+      <IdentitySheet
+        open={open}
+        identityId={shown?.identityId ?? null}
+        slot={shown?.slot ?? null}
+        onClose={() => setOpen(false)}
+      />
     </section>
   );
 }
