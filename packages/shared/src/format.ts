@@ -61,6 +61,32 @@ export function avatarInitial(nickname: string): string {
   return trimmed.length > 0 ? trimmed[0]!.toUpperCase() : '?';
 }
 
+/**
+ * Caractères invisibles ou trompeurs : contrôle, et surtout forçage de sens
+ * d'écriture, qui sert à maquiller un texte. U+200D reste : les émojis composés
+ * en ont besoin. Même liste que pour l'annuaire des parties.
+ */
+const UNSAFE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/** Une paire de substitution complète, ou une moitié orpheline. */
+const SURROGATES = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g;
+
+/**
+ * Nettoie un message de discussion avant qu'il n'entre dans la partie.
+ *
+ * Les blancs, retours à la ligne compris, deviennent une espace : un message
+ * tient sur une ligne, et personne ne pousse la conversation hors de l'écran à
+ * coups d'Entrée. Les moitiés d'émoji orphelines disparaissent — elles
+ * s'afficheraient en losange et coûtent six caractères une fois encodées.
+ */
+export function cleanChatText(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(UNSAFE_CHARS, '')
+    .replace(SURROGATES, (match) => (match.length === 2 ? match : ''))
+    .trim();
+}
+
 /** `"Sarah"` déjà pris → `"Sarah2"`, `"Sarah3"`… */
 export function suggestNickname(nickname: string, taken: ReadonlySet<string>): string {
   const base = nickname.trim();

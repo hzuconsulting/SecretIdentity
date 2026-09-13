@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   Game,
   IdentityId,
   Phase,
@@ -8,7 +9,12 @@ import type {
   Round,
   Settings,
 } from '@identite-secrete/shared';
-import { PHASES } from '@identite-secrete/shared';
+import {
+  CHAT_HISTORY_SIZE,
+  MAX_CHAT_LENGTH,
+  MAX_NICKNAME_LENGTH,
+  PHASES,
+} from '@identite-secrete/shared';
 
 /**
  * Sérialisation d'une partie.
@@ -62,6 +68,12 @@ export interface SerializedGame {
   }>;
   usedIdentityIds: string[];
   bannedNicknames: string[];
+  /**
+   * Optionnel, et sans changement de version : une sauvegarde d'avant la
+   * discussion se relit avec une conversation vide. Refuser toute la partie
+   * pour quelques messages manquants serait disproportionné.
+   */
+  chat?: ChatMessage[];
   createdAt: number;
   lastActivityAt: number;
   pausedAt: number | null;
@@ -96,6 +108,13 @@ export function serializeGame(game: Game): SerializedGame {
     })),
     usedIdentityIds: [...game.usedIdentityIds],
     bannedNicknames: [...game.bannedNicknames],
+    chat: game.chat.map(({ id, playerId, nickname, text, sentAt }) => ({
+      id,
+      playerId,
+      nickname,
+      text,
+      sentAt,
+    })),
     createdAt: game.createdAt,
     lastActivityAt: game.lastActivityAt,
     pausedAt: game.pausedAt,
@@ -164,11 +183,35 @@ export function deserializeGame(raw: unknown): Game | null {
     rounds,
     usedIdentityIds: new Set(toStringArray(raw.usedIdentityIds)),
     bannedNicknames: new Set(toStringArray(raw.bannedNicknames)),
+    chat: toChatMessages(raw.chat),
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     lastActivityAt: typeof raw.lastActivityAt === 'number' ? raw.lastActivityAt : Date.now(),
     pausedAt: typeof raw.pausedAt === 'number' ? raw.pausedAt : null,
     epoch: typeof raw.epoch === 'number' && raw.epoch >= 0 ? raw.epoch : 0,
   };
+}
+
+/**
+ * Relit la discussion sauvegardée, message par message.
+ *
+ * Ce qui ne ressemble pas à un message est écarté, sans refuser la partie : la
+ * conversation est la seule chose ici dont la perte ne coûte rien au jeu.
+ */
+function toChatMessages(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return [];
+
+  const messages: ChatMessage[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const { id, playerId, nickname, text, sentAt } = entry;
+    if (typeof id !== 'string' || typeof playerId !== 'string') continue;
+    if (typeof nickname !== 'string' || nickname.length > MAX_NICKNAME_LENGTH) continue;
+    if (typeof text !== 'string' || text.length === 0 || text.length > MAX_CHAT_LENGTH) continue;
+    if (typeof sentAt !== 'number') continue;
+    messages.push({ id, playerId, nickname, text, sentAt });
+  }
+
+  return messages.slice(-CHAT_HISTORY_SIZE);
 }
 
 function toStringArray(value: unknown): string[] {

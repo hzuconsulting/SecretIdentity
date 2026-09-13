@@ -327,6 +327,10 @@ export function adoptRelaySnapshot(snapshot: RelaySnapshot, options: AdoptRelayO
     rounds: snapshot.rounds.map(toRound),
     usedIdentityIds: new Set(snapshot.usedIdentityIds),
     bannedNicknames: new Set(snapshot.bannedNicknames),
+    // La discussion ne voyage pas dans l'instantané : il est borné, et chaque
+    // octet de texte libre y serait un octet de moins pour la partie. Après une
+    // reprise, la conversation repart de zéro.
+    chat: [],
     createdAt: now,
     lastActivityAt: now,
     // La pause est posée par l'appelant, qui seul peut armer l'échéance

@@ -70,6 +70,7 @@ export function createGame({
     rounds: [],
     usedIdentityIds: new Set<string>(),
     bannedNicknames: new Set<string>(),
+    chat: [],
     createdAt: now,
     lastActivityAt: now,
     pausedAt: null,

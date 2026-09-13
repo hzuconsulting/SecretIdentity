@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useVisualViewportBox } from '@/hooks/useVisualViewport';
 
 interface SheetProps {
   open: boolean;
@@ -10,7 +11,18 @@ interface SheetProps {
   /** Titre lu à l'ouverture par les lecteurs d'écran, et affiché en tête. */
   title: string;
   children: ReactNode;
+  /** Pied fixe, sous la zone qui défile : un champ de saisie, typiquement. */
+  footer?: ReactNode;
+  /**
+   * Hauteur fixe, calée sur la partie **visible** de l'écran, clavier déduit.
+   * Pour un contenu qui défile au-dessus d'un champ — la discussion. Sans cette
+   * option, le panneau prend la hauteur de son contenu, comme avant.
+   */
+  tall?: boolean;
 }
+
+/** L'espace laissé au-dessus du panneau : la barre d'état, et un peu d'air. */
+const TOP_GAP = 'max(1.5rem, env(safe-area-inset-top) + 0.5rem)';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
@@ -27,11 +39,12 @@ const FOCUSABLE =
  * clavier (Tab boucle), revient au bouton d'origine à la fermeture ; Échap et le
  * fond ferment. Rendu dans un portail, au-dessus de la pause et des toasts.
  */
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children, footer, tall = false }: SheetProps) {
   const reduceMotion = useReducedMotion();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+  const box = useVisualViewportBox(open && tall);
 
   // Le portail vise `document.body` : il n'existe qu'après l'hydratation.
   useEffect(() => setMounted(true), []);
@@ -111,10 +124,27 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   if (!mounted) return null;
 
+  // Calé sur la zone visible quand on la connaît : le clavier ne recouvre alors
+  // jamais le pied. Avant la première mesure, l'écran entier fait l'affaire.
+  const layerStyle = box ? { top: box.top, height: box.height } : undefined;
+  const available = box ? `${box.height}px` : '100dvh';
+  // En style plutôt qu'en classe arbitraire : Tailwind réécrit les opérateurs
+  // de `calc()` et casserait `safe-area-inset-top`.
+  const panelStyle = tall
+    ? { height: `min(40rem, calc(${available} - ${TOP_GAP}))` }
+    : { maxHeight: `calc(100dvh - ${TOP_GAP})` };
+
   return createPortal(
     <AnimatePresence>
       {open ? (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center" key="sheet">
+        <div
+          className={[
+            'fixed inset-x-0 z-[60] flex items-end justify-center',
+            box ? '' : 'inset-y-0',
+          ].join(' ')}
+          style={layerStyle}
+          key="sheet"
+        >
           <motion.div
             aria-hidden="true"
             className="absolute inset-0 bg-ink/60 backdrop-blur-[2px]"
@@ -137,9 +167,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
             transition={
               reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 36 }
             }
-            // En style plutôt qu'en classe arbitraire : Tailwind réécrit les
-            // opérateurs de `calc()` et casserait `safe-area-inset-top`.
-            style={{ maxHeight: 'calc(100dvh - max(1.5rem, env(safe-area-inset-top) + 0.5rem))' }}
+            style={panelStyle}
             className="relative flex w-full max-w-md flex-col rounded-t-card bg-lilac shadow-card outline-none"
           >
             <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-4">
@@ -159,9 +187,28 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <div
+              data-sheet-body=""
+              className={[
+                'min-h-0 flex-1 overflow-y-auto overscroll-contain px-5',
+                footer ? 'pb-3' : 'pb-[max(1.25rem,env(safe-area-inset-bottom))]',
+              ].join(' ')}
+            >
               {children}
             </div>
+
+            {footer ? (
+              <div
+                className={[
+                  'shrink-0 px-5 pt-2',
+                  // Clavier ouvert, le bas de l'écran — et son encoche — est
+                  // caché dessous : inutile de réserver sa marge.
+                  box?.keyboardOpen ? 'pb-3' : 'pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+                ].join(' ')}
+              >
+                {footer}
+              </div>
+            ) : null}
           </motion.div>
         </div>
       ) : null}

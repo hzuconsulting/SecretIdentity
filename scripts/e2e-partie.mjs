@@ -110,6 +110,29 @@ try {
   });
   console.log('✓ l’invité voit l’hôte');
 
+  // ── La discussion, dans les deux sens ────────────────────────
+  // Après les vérifications de pseudos : « Salut Sarah » suffirait sinon à
+  // faire passer le test « l'invité voit l'hôte ».
+  await guest.getByRole('button', { name: /ouvrir la discussion/i }).click();
+  await typeAfterHydration(guest, '#chat-message', 'Salut Sarah');
+  await guest.locator('#chat-message').press('Enter');
+
+  await host
+    .getByRole('button', { name: /1 nouveau message/i })
+    .waitFor({ state: 'visible', timeout: 30_000 });
+  console.log('✓ l’hôte voit la pastille d’un message non lu');
+
+  await host.getByRole('button', { name: /ouvrir la discussion/i }).click();
+  await host.getByRole('dialog').getByText('Salut Sarah').waitFor({ timeout: 30_000 });
+  console.log('✓ l’hôte lit le message de l’invité');
+
+  await typeAfterHydration(host, '#chat-message', 'Salut Allan');
+  await host.locator('#chat-message').press('Enter');
+  await guest.getByRole('dialog').getByText('Salut Allan').waitFor({ timeout: 30_000 });
+  console.log('✓ l’invité lit la réponse, panneau ouvert');
+
+  for (const page of [host, guest]) await page.keyboard.press('Escape');
+
   // ── La trace technique, des deux côtés ───────────────────────
   for (const [nom, page] of [
     ['hôte', host],

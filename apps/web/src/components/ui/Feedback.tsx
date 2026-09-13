@@ -57,7 +57,9 @@ const TONES: Record<ToastPayload['tone'], string> = {
 export function ToastStack({ toasts }: ToastStackProps) {
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-5"
+      className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-5"
+      // Au-dessus du bouton de discussion, qui occupe le coin bas droit.
+      style={{ bottom: 'calc(max(1rem, env(safe-area-inset-bottom)) + 4.5rem)' }}
       aria-live="polite"
     >
       <AnimatePresence initial={false}>

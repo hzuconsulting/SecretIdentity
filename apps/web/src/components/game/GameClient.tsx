@@ -40,6 +40,7 @@ export function GameClient({ code }: { code: string }) {
     replay,
     updateSettings,
     kickPlayer,
+    sendChat,
     leave,
     dismissError,
     hosting,
@@ -175,6 +176,9 @@ export function GameClient({ code }: { code: string }) {
       hosting={hosting}
       phase={view.phase}
       onLeave={quitToHome}
+      chat={view.chat}
+      youId={view.you.id}
+      onSendChat={sendChat}
     >
       {renderPhase()}
       {view.paused ? (

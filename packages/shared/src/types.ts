@@ -273,6 +273,13 @@ export interface Game {
    * faut bloquer en plus, c'est le retour par le formulaire de pseudo.
    */
   bannedNicknames: Set<string>;
+  /**
+   * Les derniers messages de la discussion, du plus ancien au plus récent.
+   *
+   * Public par nature : chacun l'a écrit pour toute la table. Borné à
+   * `CHAT_HISTORY_SIZE`.
+   */
+  chat: ChatMessage[];
   createdAt: number;
   lastActivityAt: number;
   /**
@@ -290,6 +297,21 @@ export interface Game {
    * `null` quand la partie tourne normalement.
    */
   pausedAt: number | null;
+}
+
+/**
+ * Un message de la discussion.
+ *
+ * Le pseudo est copié au moment de l'envoi : le message d'un joueur parti ou
+ * exclu doit rester signé.
+ */
+export interface ChatMessage {
+  id: string;
+  playerId: PlayerId;
+  nickname: string;
+  text: string;
+  /** Heure de l'hôte à la réception. */
+  sentAt: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -408,6 +430,8 @@ export interface PlayerView {
   settings: Settings;
   you: PublicPlayer;
   players: PublicPlayer[];
+  /** Toutes phases, pause comprise : les derniers messages de la discussion. */
+  chat: ChatMessage[];
 
   /** IDENTITY_REVEAL → RESULTS : les personnages du plateau, numérotés. */
   board?: IdentityId[];

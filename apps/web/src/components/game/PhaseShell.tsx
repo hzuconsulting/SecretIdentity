@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { PlayerView } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
+import { CHAT_BUTTON_CLEARANCE } from './Chat';
 import { GameChromeBar } from './GameChrome';
 import { Timer } from './Timer';
 
@@ -50,7 +51,12 @@ export function PhaseShell({ view, title, children, hideTimer = false }: PhaseSh
   }, [view.phase, view.roundNumber]);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
+    <main
+      className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      // Assez de marge pour que le bouton de discussion, flottant en bas à
+      // droite, ne recouvre jamais le bouton d'action en fin de page.
+      style={{ paddingBottom: CHAT_BUTTON_CLEARANCE }}
+    >
       <GameChromeBar />
 
       {/*

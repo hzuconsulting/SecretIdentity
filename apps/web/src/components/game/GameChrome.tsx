@@ -11,21 +11,23 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Phase } from '@identite-secrete/shared';
+import type { ChatMessage, GameError, Phase, PlayerId } from '@identite-secrete/shared';
 import { ShareCode } from '@/components/lobby/ShareCode';
 import { RulesSheet } from '@/components/rules/RulesSheet';
 import { Button } from '@/components/ui/Button';
 import { SoundToggle } from '@/components/ui/SoundToggle';
+import { ChatButton, ChatComposer, ChatMessages, useChatUnread } from './Chat';
 import { Sheet } from './Sheet';
 
 /**
  * L'« habillage » de la partie : ce qui entoure chaque écran de phase sans en
- * faire partie — le code, les règles, le retour à l'accueil, le départ.
+ * faire partie — le code, les règles, la discussion, le retour à l'accueil, le
+ * départ.
  *
  * Il est fourni par `GameClient` et lu par `PhaseShell` et le salon. Les
- * panneaux (règles, menu) sont rendus **ici**, au-dessus de l'écran de phase et
- * non à sa place : ouvrir les règles ne démonte rien, et un boîtier à moitié
- * rempli est toujours là à la fermeture.
+ * panneaux (règles, discussion, menu) sont rendus **ici**, au-dessus de l'écran
+ * de phase et non à sa place : ouvrir les règles ne démonte rien, et un boîtier
+ * à moitié rempli est toujours là à la fermeture.
  */
 
 export interface GameChromeValue {
@@ -51,7 +53,7 @@ export function useGameChrome(): GameChromeValue | null {
   return useContext(GameChromeContext);
 }
 
-type OpenSheet = 'none' | 'rules' | 'menu' | 'leave';
+type OpenSheet = 'none' | 'rules' | 'menu' | 'leave' | 'chat';
 
 interface GameChromeProviderProps {
   code: string;
@@ -60,6 +62,10 @@ interface GameChromeProviderProps {
   phase: Phase;
   /** Départ effectif : `leave()` de la connexion, puis retour à l'accueil. */
   onLeave: () => Promise<void>;
+  /** La discussion, telle que la dernière vue la porte. */
+  chat: ChatMessage[];
+  youId: PlayerId;
+  onSendChat: (text: string) => Promise<GameError | null>;
   children: ReactNode;
 }
 
@@ -69,11 +75,15 @@ export function GameChromeProvider({
   hosting,
   phase,
   onLeave,
+  chat,
+  youId,
+  onSendChat,
   children,
 }: GameChromeProviderProps) {
   const router = useRouter();
   const [open, setOpen] = useState<OpenSheet>('none');
   const [leaving, setLeaving] = useState(false);
+  const unread = useChatUnread(chat, youId, open === 'chat');
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
@@ -82,6 +92,7 @@ export function GameChromeProvider({
   const openRules = useCallback(() => setOpen('rules'), []);
   const openMenu = useCallback(() => setOpen('menu'), []);
   const requestLeave = useCallback(() => setOpen('leave'), []);
+  const openChat = useCallback(() => setOpen('chat'), []);
 
   const goHome = useCallback(() => {
     setOpen('none');
@@ -120,6 +131,18 @@ export function GameChromeProvider({
   return (
     <GameChromeContext.Provider value={value}>
       {children}
+
+      <ChatButton unread={unread} raised={hosting} onOpen={openChat} />
+
+      <Sheet
+        open={open === 'chat'}
+        onClose={close}
+        title="Discussion"
+        tall
+        footer={<ChatComposer onSend={onSendChat} />}
+      >
+        <ChatMessages messages={chat} youId={youId} />
+      </Sheet>
 
       <RulesSheet open={open === 'rules'} onClose={close} />
 

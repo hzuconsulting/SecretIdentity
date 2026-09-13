@@ -85,6 +85,14 @@ export function buildPlayerView(
     settings: { ...game.settings },
     you,
     players,
+    // Toutes phases : la discussion ne s'arrête ni au lancement ni en pause.
+    chat: game.chat.map(({ id, playerId: authorId, nickname, text, sentAt }) => ({
+      id,
+      playerId: authorId,
+      nickname,
+      text,
+      sentAt,
+    })),
   };
 
   if (game.pausedAt !== null) {

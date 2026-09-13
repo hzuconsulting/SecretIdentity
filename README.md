@@ -20,6 +20,9 @@ Ce que l'adaptation en ligne ajoute :
   changer de téléphone : on revient avec le code et le même pseudo, points et main
   intacts. Le code reste affiché pendant toute la partie.
 - **Les règles en un geste**, par-dessus la partie, sans la quitter.
+- **Une discussion entre les joueurs.** Le bouton 💬, en bas à droite, ouvre la
+  conversation de la partie, à tout moment. Une pastille compte les messages arrivés
+  pendant qu'elle était fermée. Rappel affiché : on n'y dévoile pas son numéro.
 - **Un grand catalogue** — plus de mille personnages, près de mille pictogrammes — et
   l'hôte se souvient des personnages déjà vus d'une soirée à l'autre.
 - **Un visage à côté du nom.** Quand une photo libre existe sur Wikimedia Commons, le
@@ -93,7 +96,7 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (373 tests) |
+| `npm test` | Suite Vitest complète (412 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
 | `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8 avec portraits, pose vert/rouge, vote, décompte, crédits |
@@ -127,7 +130,7 @@ identite-secrete/
 │       ├── persistence.ts    # Sérialisation d'une partie (survie au rechargement)
 │       ├── random.ts         # Jetons de session (crypto.getRandomValues)
 │       ├── timers.ts         # Registre d'échéances nommées
-│       ├── game/             # engine, pause, roundRules, round, lobby, clues, guesses
+│       ├── game/             # engine, pause, roundRules, round, lobby, clues, guesses, chat
 │       ├── serialization/    # playerView.ts — ce qui sort vers un joueur
 │       ├── handlers/         # Table des événements acceptés
 │       ├── store/            # GameStore (interface) + InMemoryStore
@@ -272,7 +275,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 373 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 412 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.

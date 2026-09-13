@@ -12,7 +12,7 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 373 tests
+### Couverture — 412 tests
 
 **`scoring.test.ts`** — le calcul de score
 - 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
@@ -52,6 +52,10 @@ npm run typecheck   # tsc --noEmit sur shared, engine et client
 - boîtier vide refusé, zone inconnue refusée, plafond de la règle laissé au moteur
 - votes bornés aux numéros du plateau (1 à 8, entiers)
 - demande d'exclusion validée
+- message de discussion : borné à 200 caractères **après** nettoyage, brut borné à
+  1 000, vide et blanc refusés ; le nettoyage met le texte sur une ligne, retire forçage
+  de sens et caractères de contrôle, garde les émojis composés et retire les moitiés
+  orphelines
 - décomptes, couleurs d'avatar stables, suggestion de pseudo (`Sarah` → `Sarah2`)
 
 **`lobby.test.ts`** — intégration, avec de vrais clients parlant à un vrai `GameHost`
@@ -182,6 +186,24 @@ ne les reçoivent jamais.
   rafale de payloads malformés (`null`, texte, nombre, tableau), et toutes les actions de
   jeu sans session renvoient `SESSION_NOT_FOUND`
 
+**`chat.test.ts`** — la discussion (D-92).
+
+- *envoi* : le message arrive nettoyé chez tous les joueurs ; il est signé par la
+  connexion, **même si le message prétend venir d'un autre** ; vide, blanc, trop long ou
+  mal formé refusé sans rien écrire ; sans session, `SESSION_NOT_FOUND` ; un message
+  n'expose que `id`, `nickname`, `playerId`, `sentAt`, `text`
+- *débit* : le sixième message en 10 s reçoit `RATE_LIMITED` (« trop vite »), une action
+  de jeu passe toujours ; un message refusé ne consomme pas le quota
+- *à tout moment* : salon, pose, vote, révélation, et **pendant une pause**, conversation
+  conservée dans l'ordre à travers les phases
+- *historique* : donné à qui arrive en retard et à qui revient sur un nouveau canal ; le
+  message d'un exclu reste signé ; 30 messages au plus, et écrire tient la partie active
+- *rechargement et reprise* : la discussion survit à la sauvegarde de l'hôte ; une
+  sauvegarde sans discussion, ou abîmée, se relit avec une conversation vide ; elle
+  n'apparaît **pas** dans l'instantané de relais, et repart vide après une reprise
+- *taille* : huit joueurs, révélation affichée, trente messages de 200 guillemets —
+  l'enveloppe envoyée reste sous 45 000 caractères (le plafond d'envoi est de 60 000)
+
 ---
 
 ## 1 bis. Vraie partie automatisée
@@ -192,10 +214,12 @@ npm run test:e2e     # dans un autre
 ```
 
 Deux contextes de navigateur séparés, une partie créée, un code, une jointure, et la
-vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
-la négociation ICE des deux côtés.
+vérification que chacun voit l'autre **sans rechargement**. Puis un échange dans la
+discussion : l'invité écrit, l'hôte voit la pastille « 1 nouveau message », lit, répond,
+et l'invité lit la réponse panneau ouvert. Le script affiche pour finir la négociation
+ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 373 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 412 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**
@@ -381,6 +405,7 @@ grisé pendant la coupure, puis redevient normal — sans qu'aucune phase ne soi
 | Sous 10 s de décompte | Un double bip, **une seule fois** — pas à chaque seconde |
 | Pendant la révélation | Un son par carte, différent selon que tu avais trouvé ou non |
 | Fin de partie | Arpège de victoire |
+| Message d'un autre, discussion fermée | Deux notes aiguës et discrètes, une seule fois pour une salve |
 | Son coupé | Plus rien, y compris pendant la révélation |
 
 ### 2.11 Accessibilité — passe complète
@@ -401,6 +426,25 @@ grisé pendant la coupure, puis redevient normal — sans qu'aucune phase ne soi
   scène en moins.
 - Masquage d'identité : le bouton `Maintenir pour voir` répond aussi à la barre d'espace
   maintenue.
+
+### 2.13 Discussion
+
+À faire sur de vrais téléphones : le clavier virtuel ne se simule pas.
+
+| À vérifier | Attendu |
+|---|---|
+| Bouton 💬 | En bas à droite au salon, sur tous les écrans de manche et **pendant la pause** ; chez l'hôte, au-dessus du bandeau « La partie tourne sur ton téléphone » |
+| Bas de page | « Lancer la partie », « Valider mon boîtier », « Valider mes votes » jamais recouverts une fois la page descendue |
+| Un autre écrit, discussion fermée | Pastille rose avec le nombre (« 9+ » au-delà), et le son `message` |
+| Discussion ouverte | Le message apparaît en bas, sans pastille ni son ; la pastille retombe à zéro à l'ouverture |
+| Son coupé | Pastille, mais aucun son |
+| iPhone (Safari) et Android (Chrome) : toucher le champ | Le panneau se cale au-dessus du clavier, le champ et le dernier message restent visibles |
+| Envoyer plusieurs messages d'affilée | Le clavier **reste ouvert** après chaque envoi |
+| Six messages en moins de 10 s | « Tu écris trop vite. Attends quelques secondes. », le texte est remis dans le champ |
+| Coller un texte de plus de 200 caractères | Coupé à 200 dans le champ |
+| Rechargement de l'hôte (F5) | La conversation est toujours là chez tout le monde |
+| Rejoindre en retard | Les derniers messages sont déjà affichés, sans pastille |
+| Lecteur d'écran, discussion ouverte | Chaque nouveau message est annoncé avec son auteur (« Allan : … ») ; le bouton annonce « Ouvrir la discussion : 2 nouveaux messages » |
 
 ---
 

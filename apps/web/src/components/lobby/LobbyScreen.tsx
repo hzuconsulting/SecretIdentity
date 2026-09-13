@@ -14,6 +14,7 @@ import {
 import { PlayerList } from '@/components/lobby/PlayerList';
 import { SettingsPanel } from '@/components/lobby/SettingsPanel';
 import { ShareCode } from '@/components/lobby/ShareCode';
+import { CHAT_BUTTON_CLEARANCE } from '@/components/game/Chat';
 import { RulesButton, useGameChrome } from '@/components/game/GameChrome';
 import { useSound } from '@/hooks/useSound';
 import { Button } from '@/components/ui/Button';
@@ -90,7 +91,12 @@ export function LobbyScreen({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 pb-8 pt-[max(1.5rem,env(safe-area-inset-top))]">
+    <main
+      className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      // Le bouton de discussion flotte en bas à droite : « Lancer la partie »
+      // doit rester entièrement à découvert.
+      style={{ paddingBottom: CHAT_BUTTON_CLEARANCE }}
+    >
       <header className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           {/*

@@ -1460,11 +1460,53 @@ appareil, le bandeau « Partie en cours » le ramène toujours.
 
 ---
 
+## Lot 14 — Se parler autour de la table
+
+### D-92 · Une discussion ouverte à tout moment, portée par la vue
+
+**Décision.** Un bouton 💬 flotte en bas à droite de tous les écrans de la partie : salon,
+manche, révélation, classement, et pause comprise. Il ouvre un panneau `Discussion` (le
+`Sheet` des règles, en hauteur fixe) : les messages en bulles, un champ, « Envoyer ».
+Panneau fermé, un message d'un autre joueur allume une pastille de non-lus et joue un
+son court (`message`), coupé avec les autres.
+
+Un message est une action comme une autre, `chat:send` : validé par Zod, signé par la
+connexion (jamais par ce qu'il prétend), nettoyé — une seule ligne, sans caractère de
+contrôle ni forçage de sens d'écriture —, 200 caractères au plus, 5 par 10 s en plus du
+plafond général. L'hôte garde les 30 derniers dans `Game.chat`, et **chaque vue les
+porte** : il n'y a aucun événement serveur nouveau. Ils sont sauvegardés avec la partie,
+en champ facultatif, sans changer `PERSISTENCE_VERSION`. Ils ne vont pas dans l'instantané
+de relais.
+
+Aucun contrôle de phase. Un rappel est écrit sous la liste : « 🤫 Ne dévoile pas ton
+numéro ! ».
+
+**Pourquoi.** « Il faut que les joueurs d'une même partie puissent discuter entre eux,
+sans rien de compliqué. » Passer par la vue règle d'un coup ce qu'un événement à part
+aurait obligé à écrire trois fois : l'historique pour qui arrive en retard, pour qui
+recharge, pour qui revient sur un nouveau canal. Le filtre des vues d'un hôte périmé
+(D-74) s'applique aussi à la discussion, et le hook ne fait toujours que garder la
+dernière vue. Laisser écrire « je suis le 3 » en pleine manche est un choix : autour
+d'une vraie table, on peut aussi le dire à voix haute, et bloquer la saisie pendant les
+manches aurait fermé la discussion presque tout le temps.
+
+**Coût.** La discussion repart dans chaque vue. Au pire — huit joueurs, pseudos au
+maximum, révélation affichée, trente messages de guillemets —, une vue fait 28 000
+caractères, dont 17 000 de discussion : moitié du plafond d'envoi, et un test le
+surveille. Écrire relance la sauvegarde de l'hôte et, au plus toutes les 5 s,
+l'instantané de relais. Après une reprise d'hébergement, la conversation repart vide. Le
+plafond de débit est par canal, comme l'autre (voir « Points laissés ouverts »).
+L'exclusion (D-66) reste le seul outil de modération. Le bouton flottant peut masquer le
+bord droit d'un contrôle pendant le défilement ; les pages ont une marge basse de 6 rem,
+pour que le bouton d'action final reste toujours dégagé.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  373 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  412 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -1475,7 +1517,7 @@ appareil, le bandeau « Partie en cours » le ramène toujours.
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 373 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 412 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.

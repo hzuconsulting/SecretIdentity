@@ -31,7 +31,8 @@ export type SoundName =
   | 'correct'
   | 'wrong'
   | 'urgent'
-  | 'win';
+  | 'win'
+  | 'message';
 
 interface Tone {
   /** Fréquence en Hz. */
@@ -73,6 +74,12 @@ const SOUNDS: Record<SoundName, Tone[]> = {
     { frequency: 659, at: 0.1, duration: 0.11 },
     { frequency: 784, at: 0.2, duration: 0.11 },
     { frequency: 1047, at: 0.3, duration: 0.3 },
+  ],
+  // Plus discret que tout le reste : un message n'est pas un événement de jeu,
+  // il ne doit pas se confondre avec un changement de phase.
+  message: [
+    { frequency: 988, at: 0, duration: 0.07, gain: 0.35 },
+    { frequency: 1319, at: 0.06, duration: 0.1, gain: 0.3 },
   ],
 };
 

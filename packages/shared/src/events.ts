@@ -3,6 +3,7 @@ import {
   BOARD_SIZE,
   CODE_LENGTH,
   DIFFICULTY_OPTIONS,
+  MAX_CHAT_LENGTH,
   MAX_NICKNAME_LENGTH,
   MAX_PICTOS,
   MIN_NICKNAME_LENGTH,
@@ -12,6 +13,7 @@ import {
   TIMER_OPTIONS,
   VISIBILITY_OPTIONS,
 } from './constants';
+import { cleanChatText } from './format';
 import { normalizeGameCode } from './gameCode';
 import type { Ack, GameError, GameErrorCode, PlayerView, Phase } from './types';
 
@@ -31,6 +33,7 @@ export const CLIENT_EVENTS = {
   replay: 'game:replay',
   leave: 'game:leave',
   kickPlayer: 'player:kick',
+  sendChat: 'chat:send',
   ping: 'time:ping',
 } as const;
 
@@ -131,6 +134,23 @@ export const kickPlayerSchema = z.object({
   playerId: z.string().min(1).max(64),
 });
 
+/**
+ * Un message de discussion. Le plafond brut ne borne que l'absurde, avant le
+ * nettoyage ; la vraie limite s'applique au texte nettoyé, celui qu'on affiche.
+ */
+export const sendChatSchema = z.object({
+  text: z
+    .string()
+    .max(1_000)
+    .transform(cleanChatText)
+    .pipe(
+      z
+        .string()
+        .min(1, 'Écris un message avant d’envoyer.')
+        .max(MAX_CHAT_LENGTH, `${MAX_CHAT_LENGTH} caractères maximum.`),
+    ),
+});
+
 export const nextRoundSchema = z.object({});
 export const replaySchema = z.object({});
 export const pingSchema = z.object({ clientTime: z.number() });
@@ -142,6 +162,7 @@ export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>;
 export type SubmitCluesPayload = z.infer<typeof submitCluesSchema>;
 export type SubmitGuessesPayload = z.infer<typeof submitGuessesSchema>;
 export type KickPlayerPayload = z.infer<typeof kickPlayerSchema>;
+export type SendChatPayload = z.input<typeof sendChatSchema>;
 export type PingPayload = z.infer<typeof pingSchema>;
 
 /** Sanity check : les options du salon et les schémas Zod ne divergent pas. */

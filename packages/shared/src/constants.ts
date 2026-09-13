@@ -145,6 +145,25 @@ export const RATE_LIMIT_WINDOW_MS = 10_000;
 export const RATE_LIMIT_MAX_EVENTS = 60;
 
 // ─────────────────────────────────────────────────────────────
+//  Discussion
+// ─────────────────────────────────────────────────────────────
+
+/** Longueur maximale d'un message : une phrase, pas une lettre. */
+export const MAX_CHAT_LENGTH = 200;
+/**
+ * Messages gardés par l'hôte, et donc renvoyés dans chaque vue. Assez pour
+ * rattraper la conversation en revenant ; borné, parce que la vue entière doit
+ * tenir sous le plafond d'un message réseau.
+ */
+export const CHAT_HISTORY_SIZE = 30;
+/**
+ * Plafond propre à la discussion, **en plus** du plafond général : 60 actions
+ * en 10 s, c'est taper ses icônes ; 60 messages, c'est inonder la table.
+ */
+export const CHAT_RATE_MAX_MESSAGES = 5;
+export const CHAT_RATE_WINDOW_MS = 10_000;
+
+// ─────────────────────────────────────────────────────────────
 //  Divers
 // ─────────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ import {
   BOARD_SIZE,
   DEFAULT_SETTINGS,
   DIFFICULTY_OPTIONS,
+  MAX_CHAT_LENGTH,
   MAX_PICTOS,
   TIMER_OPTIONS,
 } from '../constants';
@@ -12,6 +13,7 @@ import {
   joinGameSchema,
   kickPlayerSchema,
   ok,
+  sendChatSchema,
   settingsSchema,
   submitCluesSchema,
   submitGuessesSchema,
@@ -19,6 +21,7 @@ import {
 } from '../events';
 import {
   avatarColor,
+  cleanChatText,
   formatCountdown,
   secondsRemaining,
   suggestNickname,
@@ -95,6 +98,48 @@ describe('schémas Zod', () => {
     expect(kickPlayerSchema.safeParse({ playerId: 'p1' }).success).toBe(true);
     expect(kickPlayerSchema.safeParse({ playerId: '' }).success).toBe(false);
     expect(kickPlayerSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('borne un message de discussion au texte nettoyé', () => {
+    expect(sendChatSchema.parse({ text: '  Salut  ' }).text).toBe('Salut');
+    expect(sendChatSchema.safeParse({ text: 'a'.repeat(MAX_CHAT_LENGTH) }).success).toBe(true);
+    expect(sendChatSchema.safeParse({ text: 'a'.repeat(MAX_CHAT_LENGTH + 1) }).success).toBe(
+      false,
+    );
+    // La limite porte sur ce qui sera affiché : des blancs en trop ne comptent pas.
+    expect(
+      sendChatSchema.safeParse({ text: `${'a'.repeat(MAX_CHAT_LENGTH)}${' '.repeat(50)}` })
+        .success,
+    ).toBe(true);
+    // Mais le brut reste borné, avant tout nettoyage.
+    expect(sendChatSchema.safeParse({ text: ' '.repeat(1_001) }).success).toBe(false);
+    expect(sendChatSchema.safeParse({ text: '' }).success).toBe(false);
+    expect(sendChatSchema.safeParse({ text: '   ' }).success).toBe(false);
+    expect(sendChatSchema.safeParse({ text: 42 }).success).toBe(false);
+    expect(sendChatSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('nettoyage des messages', () => {
+  const RLO = String.fromCharCode(0x202e);
+  const BELL = String.fromCharCode(0x07);
+  const LONE_HIGH = String.fromCharCode(0xd83d);
+
+  it('met le message sur une ligne', () => {
+    expect(cleanChatText('Salut\n\n\ttoi  !  ')).toBe('Salut toi !');
+  });
+
+  it('retire le forçage de sens et les caractères de contrôle', () => {
+    expect(cleanChatText(`je suis ${RLO}le 3${BELL}`)).toBe('je suis le 3');
+  });
+
+  it('garde les émojis, même composés, et retire les moitiés orphelines', () => {
+    expect(cleanChatText('bravo 👏🏽 la 👩‍👩‍👧')).toBe('bravo 👏🏽 la 👩‍👩‍👧');
+    expect(cleanChatText(`oups ${LONE_HIGH}!`)).toBe('oups !');
+  });
+
+  it('ne laisse rien d’un message fait de rien', () => {
+    expect(cleanChatText(`  ${RLO}${BELL}\n `)).toBe('');
   });
 });
 

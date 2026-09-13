@@ -60,6 +60,7 @@ export interface GameConnection {
   nextRound: () => Promise<GameError | null>;
   updateSettings: (patch: Partial<Settings>) => Promise<GameError | null>;
   kickPlayer: (playerId: PlayerId) => Promise<GameError | null>;
+  sendChat: (text: string) => Promise<GameError | null>;
   leave: () => Promise<void>;
   dismissError: () => void;
 }
@@ -303,6 +304,13 @@ export function useGameConnection(code: string): GameConnection {
     [send],
   );
 
+  // Le message revient dans la vue suivante, comme tout le reste : pas
+  // d'affichage anticipé, la discussion montre ce que l'hôte a reçu.
+  const sendChat = useCallback(
+    (text: string) => send(CLIENT_EVENTS.sendChat, { text }),
+    [send],
+  );
+
   const replay = useCallback(() => send(CLIENT_EVENTS.replay, {}), [send]);
   const nextRound = useCallback(() => send(CLIENT_EVENTS.nextRound, {}), [send]);
 
@@ -344,6 +352,7 @@ export function useGameConnection(code: string): GameConnection {
     nextRound,
     updateSettings,
     kickPlayer,
+    sendChat,
     leave,
     dismissError,
   };

@@ -1,4 +1,6 @@
 import {
+  CHAT_RATE_MAX_MESSAGES,
+  CHAT_RATE_WINDOW_MS,
   DISCONNECT_GRACE_MS,
   HOST_TRANSFER_DELAY_MS,
   defaultRng,
@@ -81,6 +83,8 @@ export interface Binding {
 export class ConnectionState {
   binding: Binding | null = null;
   readonly limiter: RateLimiter;
+  /** Plafond propre aux messages de discussion, en plus du plafond général. */
+  readonly chatLimiter = new RateLimiter(CHAT_RATE_MAX_MESSAGES, CHAT_RATE_WINDOW_MS);
 
   constructor(
     readonly id: ConnectionId,
@@ -100,6 +104,8 @@ export interface HandlerContext {
    * est journalisée et renvoyée en erreur typée, jamais avalée.
    */
   guard<T>(label: string, run: () => Promise<Ack<T>>): Promise<Ack<T>>;
+  /** `false` si cette connexion a déjà trop écrit dans la discussion. */
+  acceptChat(): boolean;
   /** Attache la connexion à un joueur d'une partie. */
   bind(code: string, playerId: PlayerId): void;
   /** Détache la connexion, après un départ volontaire. */
@@ -132,6 +138,10 @@ export function createHandlerContext(
         logger.error(`Échec de ${label}`, error);
         return fail<T>('INTERNAL_ERROR');
       }
+    },
+
+    acceptChat(): boolean {
+      return state.chatLimiter.accept();
     },
 
     bind(code: string, playerId: PlayerId): void {
