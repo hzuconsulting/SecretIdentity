@@ -12,7 +12,7 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 304 tests
+### Couverture — 357 tests
 
 **`scoring.test.ts`** — le calcul de score
 - 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
@@ -194,7 +194,7 @@ Deux contextes de navigateur séparés, une partie créée, un code, une jointur
 vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
 la négociation ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 304 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 357 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**

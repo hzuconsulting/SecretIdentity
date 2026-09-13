@@ -34,6 +34,7 @@ export function IdentityRevealScreen({ view }: { view: PlayerView }) {
       >
         <IdentityCard
           identityName={identity?.name ?? '—'}
+          identityId={view.yourIdentityId ?? null}
           slot={view.yourSlot ?? null}
         />
 

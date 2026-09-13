@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';
 /**
  * Une vraie partie, deux navigateurs, de bout en bout.
  *
- * Ce script existe parce que les 304 tests unitaires ne couvraient pas ce qui a
+ * Ce script existe parce que les 357 tests unitaires ne couvraient pas ce qui a
  * réellement cassé. Ils exercent le moteur sur un canal en mémoire ; ils ne
  * peuvent rien dire de WebRTC, de la sérialisation sur le fil, ni de
  * l'établissement d'un canal — c'est-à-dire précisément la couche qui a produit

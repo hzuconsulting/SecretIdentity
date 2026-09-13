@@ -5,8 +5,12 @@ import type { Identity } from '../types';
  *
  * Règles :
  *  - `id` en kebab-case, stable et unique (il sert de clé réseau).
- *  - `name` est la seule chose affichée : **aucune image, aucun logo**.
- *    Il doit être unique (sans tenir compte de la casse ni des accents).
+ *  - `name` est ce qui identifie le personnage à l'écran. Il doit être unique
+ *    (sans tenir compte de la casse ni des accents).
+ *  - Aucune image n'est stockée ici. Un portrait **libre de droits** peut
+ *    l'accompagner (D-85) : il vient de Wikimedia Commons, est généré hors
+ *    ligne par `scripts/portraits/build.ts` dans `apps/web/public/portraits.json`,
+ *    et reste facultatif — sans lui, l'écran montre une initiale.
  *  - Pour ajouter une identité, ajoutez une ligne dans la bonne section.
  *  - Le champ `packs` est optionnel ; une identité sans `packs` appartient
  *    au pack `base` (cf. `IDENTITY_PACKS` plus bas).

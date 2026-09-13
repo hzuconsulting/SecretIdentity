@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   BOARD_SIZE,
   MAX_PICTOS,
@@ -207,6 +208,22 @@ export function RulesContent({ headingLevel = 2 }: RulesContentProps) {
           </li>
         </ul>
       </Card>
+
+      <p className="text-center text-xs text-muted">
+        Portraits&nbsp;: Wikimedia Commons, sous licence libre ·{' '}
+        {/*
+          Dans le panneau ouvert en pleine partie (titres de niveau 3), le lien
+          ouvre un autre onglet : quitter l'écran de jeu perdrait le boîtier en
+          cours, et le panneau existe justement pour l'éviter.
+        */}
+        <Link
+          href="/credits"
+          {...(headingLevel === 3 ? { target: '_blank', rel: 'noopener' } : {})}
+          className="underline decoration-muted/40 underline-offset-2"
+        >
+          Crédits photos
+        </Link>
+      </p>
     </div>
   );
 }

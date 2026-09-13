@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { ICONS, IDENTITIES, MAX_PLAYERS, MIN_PLAYERS } from '@identite-secrete/shared';
 import { HomeHero } from '@/components/HomeHero';
 import { ConnectionCheck } from '@/components/ConnectionCheck';
@@ -40,7 +41,10 @@ export default function HomePage() {
         <ConnectionCheck />
         <p className="text-center text-xs text-muted">
           {MIN_PLAYERS} à {MAX_PLAYERS} joueurs · {IDENTITIES.length} identités ·{' '}
-          {ICONS.length} icônes
+          {ICONS.length} icônes ·{' '}
+          <Link href="/credits" className="underline decoration-muted/40 underline-offset-2">
+            Crédits photos
+          </Link>
         </p>
       </footer>
     </main>

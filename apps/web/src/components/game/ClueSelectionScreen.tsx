@@ -183,7 +183,11 @@ export function ClueSelectionScreen({ view, onSubmit, onKick }: ClueSelectionScr
     <PhaseShell view={view} title="Ton boîtier">
       <PhaseAnnouncement label="Choisis les pictogrammes qui font deviner ton personnage." />
 
-      <IdentityCard identityName={identity?.name ?? '—'} compact />
+      <IdentityCard
+        identityName={identity?.name ?? '—'}
+        identityId={view.yourIdentityId ?? null}
+        compact
+      />
 
       {view.board ? <BoardGrid board={view.board} compact /> : null}
 

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { PictoCase } from './PictoCase';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
+import { Portrait } from './Portrait';
 
 interface ResultsScreenProps {
   view: PlayerView;
@@ -204,6 +205,7 @@ function RevealCard({ reveal, youId, board, ownedSlots }: RevealCardProps) {
   const found = reveal.guessedByPlayerIds.length;
   const youFound = reveal.guessedByPlayerIds.includes(youId);
   const isYou = reveal.playerId === youId;
+  const identityName = getIdentity(reveal.identityId)?.name ?? reveal.identityId;
 
   return (
     <motion.li
@@ -213,15 +215,20 @@ function RevealCard({ reveal, youId, board, ownedSlots }: RevealCardProps) {
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="rounded-card bg-white p-4 shadow-card"
     >
+      {/*
+        La carte dit *quoi* avant *qui* : le personnage révélé fait le titre,
+        avec son portrait ; le joueur qui le portait vient en dessous, avec son
+        avatar en petit. Deux ronds de même taille côte à côte se confondaient.
+      */}
       <div className="flex items-center gap-3">
-        <PlayerAvatar playerId={reveal.playerId} nickname={reveal.nickname} size="sm" />
+        <Portrait identityId={reveal.identityId} name={identityName} size="md" />
         <div className="min-w-0 flex-1">
-          <p className="font-display text-lg font-extrabold leading-tight">
-            <span className="text-violet-dark">n°{reveal.slot}</span>{' '}
-            {getIdentity(reveal.identityId)?.name ?? reveal.identityId}
+          <p className="break-words font-display text-lg font-extrabold leading-tight">
+            <span className="text-violet-dark">n°{reveal.slot}</span> {identityName}
           </p>
-          <p className="text-sm font-semibold text-muted">
-            C’était {isYou ? 'toi' : reveal.nickname}
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-muted">
+            <PlayerAvatar playerId={reveal.playerId} nickname={reveal.nickname} size="xs" />
+            <span className="min-w-0 truncate">C’était {isYou ? 'toi' : reveal.nickname}</span>
           </p>
         </div>
       </div>

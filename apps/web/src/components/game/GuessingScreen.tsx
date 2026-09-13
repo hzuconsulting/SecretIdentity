@@ -17,6 +17,7 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { BoardGrid } from './BoardGrid';
 import { PictoCase } from './PictoCase';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
+import { Portrait } from './Portrait';
 import { WaitingPanel } from './WaitingPanel';
 
 interface GuessingScreenProps {
@@ -130,11 +131,25 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
           <ul className="mt-3 flex flex-col gap-1 text-sm font-semibold">
             {opponents.map((opponent) => {
               const slot = view.yourVotes?.[opponent.playerId];
-              const name = slot ? getIdentity(board[slot - 1] ?? '')?.name : null;
+              const identityId = slot ? board[slot - 1] : undefined;
+              const name = identityId ? getIdentity(identityId)?.name : null;
 
               return (
-                <li key={opponent.playerId}>
-                  {opponent.nickname} → {slot ? `n°${slot} ${name ?? ''}` : 'sans réponse'}
+                <li
+                  key={opponent.playerId}
+                  className="flex flex-wrap items-center justify-center gap-x-1.5"
+                >
+                  <span>{opponent.nickname} →</span>
+                  {slot && identityId ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Portrait identityId={identityId} name={name ?? identityId} size="xs" />
+                      <span>
+                        n°{slot} {name ?? ''}
+                      </span>
+                    </span>
+                  ) : (
+                    <span>{slot ? `n°${slot}` : 'sans réponse'}</span>
+                  )}
                 </li>
               );
             })}

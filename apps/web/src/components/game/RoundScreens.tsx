@@ -6,6 +6,7 @@ import { leadersOf, type PlayerView, type RoundScoreLine } from '@identite-secre
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { PhaseAnnouncement, PhaseShell } from './PhaseShell';
+import { Portrait } from './Portrait';
 
 /**
  * Classement de fin de manche et écran de fin de partie.
@@ -152,7 +153,12 @@ export function FinalResultsScreen({ view, onReplay, onLeave }: FinalResultsScre
           {stats.hardestIdentity ? (
             <StatLine
               label="Indice incompris"
+              // `nickname` porte ici le nom du personnage, pas celui d'un joueur.
               value={`${stats.hardestIdentity.nickname} · ${Math.round(stats.hardestIdentity.successRate * 100)} % de réussite`}
+              portrait={{
+                identityId: stats.hardestIdentity.identityId,
+                name: stats.hardestIdentity.nickname,
+              }}
             />
           ) : null}
         </ul>
@@ -219,13 +225,27 @@ function ScoreTable({ lines }: { lines: RoundScoreLine[] }) {
   );
 }
 
-function StatLine({ label, value }: { label: string; value: string }) {
+function StatLine({
+  label,
+  value,
+  portrait,
+}: {
+  label: string;
+  value: string;
+  /** Le personnage dont parle la ligne, pour son portrait à gauche. */
+  portrait?: { identityId: string; name: string };
+}) {
   return (
-    <li className="rounded-tile bg-white px-4 py-3 shadow-tile">
-      <p className="font-display text-[0.65rem] font-extrabold uppercase tracking-widest text-muted">
-        {label}
-      </p>
-      <p className="font-display text-base font-extrabold">{value}</p>
+    <li className="flex items-center gap-3 rounded-tile bg-white px-4 py-3 shadow-tile">
+      {portrait ? (
+        <Portrait identityId={portrait.identityId} name={portrait.name} size="sm" />
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="font-display text-[0.65rem] font-extrabold uppercase tracking-widest text-muted">
+          {label}
+        </p>
+        <p className="break-words font-display text-base font-extrabold">{value}</p>
+      </div>
     </li>
   );
 }

@@ -22,6 +22,9 @@ Ce que l'adaptation en ligne ajoute :
 - **Les règles en un geste**, par-dessus la partie, sans la quitter.
 - **Un grand catalogue** — plus de mille personnages, près de mille pictogrammes — et
   l'hôte se souvient des personnages déjà vus d'une soirée à l'autre.
+- **Un visage à côté du nom.** Quand une photo libre existe sur Wikimedia Commons, le
+  personnage l'affiche en vignette : on reconnaît parfois une tête avant un nom. Les
+  auteurs et licences sont sur la page *Crédits*.
 
 **Aucun serveur à déployer.** Le site est un ensemble de fichiers statiques, publiable
 sur GitHub Pages, et le moteur de jeu tourne dans le navigateur du joueur qui crée la
@@ -90,13 +93,14 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (304 tests) |
+| `npm test` | Suite Vitest complète (357 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
 | `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8, pose vert/rouge, vote, décompte |
 | `npm run typecheck` | `tsc --noEmit` sur les trois projets |
 | `npm run build` | Build de production |
 | `npm run build:static` | Site statique dans `apps/web/out` |
+| `npm run portraits` | Recalcule `apps/web/public/portraits.json` depuis Wikidata et Commons (réseau, quelques minutes) |
 
 ## Structure
 
@@ -114,8 +118,8 @@ identite-secrete/
 │       ├── rng.ts            # RNG injectable (rend tout testable)
 │       ├── format.ts         # Décomptes, avatars, libellés
 │       └── data/
-│           ├── identities.ts # ~300 personnages
-│           └── icons.ts      # 349 pictogrammes emoji
+│           ├── identities.ts # 1 229 personnages
+│           └── icons.ts      # 981 pictogrammes emoji
 ├── packages/engine/          # Moteur autoritaire — sans réseau ni Node
 │   └── src/
 │       ├── host.ts           # GameHost : reçoit des messages, répond, diffuse
@@ -128,16 +132,29 @@ identite-secrete/
 │       ├── handlers/         # Table des événements acceptés
 │       ├── store/            # GameStore (interface) + InMemoryStore
 │       └── __tests__/        # Intégration : vraies parties, vrais minuteurs
-└── apps/web/                 # Next.js App Router + Tailwind + Framer Motion
-    └── src/
-        ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer
-        ├── components/       # game/ (écrans de phase), lobby/, ui/
-        ├── hooks/            # useGameConnection, useServerClock, useSound
-        └── lib/
-            ├── net/          # hostNode, guestNode, peer, protocol, hostStorage
-            ├── session.ts    # Sessions localStorage
-            └── sound.ts      # Web Audio
+├── apps/web/                 # Next.js App Router + Tailwind + Framer Motion
+│   ├── public/
+│   │   └── portraits.json    # Photos libres des personnages (généré, voir ci-dessous)
+│   └── src/
+│       ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer, /credits
+│       ├── components/       # game/ (écrans de phase), lobby/, ui/
+│       ├── hooks/            # useGameConnection, useServerClock, useSound
+│       └── lib/
+│           ├── net/          # hostNode, guestNode, peer, protocol, hostStorage
+│           ├── portraits.ts  # Chargement paresseux et validé des portraits
+│           ├── session.ts    # Sessions localStorage
+│           └── sound.ts      # Web Audio
+└── scripts/portraits/        # Générateur hors ligne des portraits + corrections manuelles
 ```
+
+**Les portraits sont calculés une fois, pas à chaque partie.** L'API de Wikipédia bride
+les appels rapprochés : les téléphones des joueurs ne l'interrogent jamais.
+`npm run portraits` parcourt le catalogue par lots (article frwiki → Wikidata → image
+Commons), ne garde que les licences libres (domaine public, CC0, CC BY, CC BY-SA), écrit
+`apps/web/public/portraits.json` et un rapport de couverture dans
+`scripts/portraits/report.md`. Un personnage mal trouvé se corrige dans
+`scripts/portraits/overrides.json`, puis on relance. Sans photo, le personnage garde son
+initiale.
 
 **Le module le plus important est `packages/engine/src/serialization/playerView.ts`.**
 Tout ce qui part vers un joueur passe par lui, et il construit ses objets par liste
@@ -244,7 +261,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 304 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 357 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.

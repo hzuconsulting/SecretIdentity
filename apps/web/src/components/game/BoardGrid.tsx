@@ -1,6 +1,7 @@
 'use client';
 
 import { getIdentity, type IdentityId, type Slot } from '@identite-secrete/shared';
+import { Portrait } from './Portrait';
 
 interface BoardGridProps {
   /** Les personnages du plateau : `board[0]` porte le numéro 1. */
@@ -47,7 +48,10 @@ export function BoardGrid({
             <li key={`${slot}-${identityId}`}>
               <div
                 className={[
-                  'flex items-center gap-2 rounded-tile bg-white px-2.5 shadow-tile',
+                  // Pastille, portrait, nom : ~150 px de large sur un téléphone
+                  // de 390 px. Écarts serrés pour laisser au nom de quoi tenir
+                  // sur deux lignes.
+                  'flex items-center gap-1.5 rounded-tile bg-white px-2 shadow-tile',
                   compact ? 'py-2' : 'py-3',
                   // Deux signaux pour la mise en avant, jamais la couleur seule
                   // (§7.4) : l'anneau *et* la pastille numérotée qui change.
@@ -65,9 +69,14 @@ export function BoardGrid({
                   {slot}
                 </span>
 
+                <Portrait identityId={identityId} name={name} size="sm" />
+
                 <span
                   className={[
-                    'min-w-0 flex-1 font-display font-extrabold leading-tight',
+                    // Un nom d'un seul long mot ne doit pas déborder de la tuile :
+                    // on coupe, avec un trait d'union quand le navigateur sait le
+                    // placer (la page est déclarée en français).
+                    'min-w-0 flex-1 hyphens-auto break-words font-display font-extrabold leading-tight',
                     compact ? 'text-sm' : 'text-base',
                   ].join(' ')}
                 >

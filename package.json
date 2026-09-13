@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "node scripts/e2e-partie.mjs",
-    "test:e2e:manche": "node scripts/e2e-manche.mjs"
+    "test:e2e:manche": "node scripts/e2e-manche.mjs",
+    "portraits": "vite-node scripts/portraits/build.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -1291,11 +1291,46 @@ parce que l'index n'était jamais purgé d'un jeton remplacé.
 
 ---
 
+## Lot 12 — Un visage à côté du nom
+
+### D-85 · Des portraits libres, calculés une fois, chargés à la demande
+
+**Décision.** Chaque personnage peut être accompagné d'une petite photo : sur le
+plateau, sur la carte d'identité (masquée avec elle), à la révélation et dans le
+récapitulatif du vote. Les images viennent **uniquement de Wikimedia Commons, sous
+licence libre** — domaine public, CC0, CC BY, CC BY-SA ; tout le reste est écarté. Une
+page `/credits` donne pour chacune l'auteur, la licence et la page du fichier.
+
+La liste est calculée **hors ligne** par `npm run portraits`
+(`scripts/portraits/build.ts`) : article frwiki → élément Wikidata → image P18, sinon
+image libre de l'article ; SVG et logos écartés ; corrections à la main dans
+`scripts/portraits/overrides.json`. Le résultat, `apps/web/public/portraits.json`, est un
+fichier statique à part, chargé une seule fois et validé à la lecture. Sans image, le
+personnage garde son initiale sur couleur stable — le même visuel que les joueurs.
+
+Le service worker fait une seule exception à sa règle « les autres origines passent sans
+être touchées » : les vignettes `upload.wikimedia.org`, dans un cache à part borné à 300
+entrées, pour qu'un personnage déjà vu garde son visage hors ligne.
+
+**Pourquoi.** « Si le joueur ne connaît pas le nom du personnage, il reconnaîtra peut-être
+son visage. » Les visuels officiels auraient mieux couvert la fiction, mais ne sont pas
+libres : l'utilisateur a choisi le libre seul. L'API de Wikipédia bride vite les appels
+rapprochés — les téléphones des joueurs ne doivent jamais l'interroger, d'où le calcul
+préalable. Et le catalogue part déjà sur cinq pages : les portraits n'y sont pas ajoutés.
+
+**Coût.** Les vraies personnes sont presque toutes couvertes ; les personnages de fiction
+beaucoup moins (un cosplay, un logo, ou rien) — ils gardent leur initiale. Les images sont
+servies par Wikimedia : au premier affichage, un joueur hors ligne voit l'initiale. La
+règle d'en-tête du catalogue (« seul le nom est montré ») est levée : une photo n'est
+jamais nécessaire pour jouer.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  304 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  357 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -1306,7 +1341,7 @@ parce que l'index n'était jamais purgé d'un jeton remplacé.
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 304 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 357 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.
