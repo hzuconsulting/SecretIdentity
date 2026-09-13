@@ -14,9 +14,19 @@ interface IconTileProps {
   className?: string;
 }
 
+/**
+ * La case garde sa taille ; c'est le pictogramme qui la remplit. À 24 px dans
+ * une case de 56, il y avait plus de blanc que d'image : on vise environ 70 %
+ * de la case, et `leading-none` pour qu'une grande police ne déborde pas.
+ */
 const SIZES = {
-  sm: 'h-14 w-14 text-2xl',
-  md: 'h-20 w-20 text-4xl',
+  sm: 'h-14 w-14',
+  md: 'h-20 w-20',
+} as const;
+
+const ICON_SIZES = {
+  sm: 'text-[2.375rem]',
+  md: 'text-[3.375rem]',
 } as const;
 
 /**
@@ -48,7 +58,9 @@ export function IconTile({
       role="img"
       aria-label={icon.label}
     >
-      <span aria-hidden="true">{icon.icon}</span>
+      <span aria-hidden="true" className={`leading-none ${ICON_SIZES[size]}`}>
+        {icon.icon}
+      </span>
 
       {selected ? (
         <span
