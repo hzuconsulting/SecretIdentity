@@ -1413,6 +1413,53 @@ sourcés un à un : une erreur se corrige directement dans le fichier.
 
 ---
 
+### D-90 · Une partie sans personne quitte la liste tout de suite
+
+**Décision.** Une partie n'est annoncée dans l'annuaire (D-82) que si quelqu'un est là
+pour accueillir : l'écran de l'hôte est visible, ou un invité au moins est connecté. Un
+hôte seul qui passe en arrière-plan retire son annonce sur-le-champ, par `sendBeacon`, et
+la rétablit à son retour. Le dernier invité qui part pendant que l'hôte est absent la
+retire au créneau suivant. Une annonce à zéro joueur connecté n'est ni publiée ni
+affichée.
+
+**Pourquoi.** « Des parties restent ouvertes alors qu'il n'y a personne dedans. » Le
+départ le plus courant d'un hôte sur téléphone — changer d'application, verrouiller
+l'écran — ne déclenche pas `pagehide`, seulement `visibilitychange`, puis le système gèle
+l'onglet. Aucun minuteur ne part plus : l'annonce restait jusqu'à sa péremption, quatre
+minutes plus tard, et menait à un moteur figé. La tolérance demandée est d'une minute.
+
+**Coût.** Un hôte seul qui jette un œil à une notification fait disparaître puis
+réapparaître sa partie : deux messages sur le quota. Une disparition silencieuse
+(batterie à plat, crash, réseau perdu) garde le délai de quatre minutes — le descendre à
+une minute demanderait un battement toutes les 25 s, soit un quart du temps de partie
+publique permis par jour.
+
+---
+
+### D-91 · Les parties de test hors de la liste, une partie commencée sans lien
+
+**Décision.** `npm run dev` annonce sur un sujet ntfy à part
+(`…-parties-dev-3k3p9bm824e`) ; seul le site construit écrit sur celui des joueurs.
+`NEXT_PUBLIC_DIRECTORY_URL` garde la priorité dans les deux cas. Les scripts
+`e2e-*.mjs` quittent leurs pages avant de fermer le navigateur, pour que l'hôte retire
+son annonce. Sur l'accueil, une partie commencée reste visible mais grisée, pastille
+« En cours », sans lien — comme un salon complet.
+
+**Pourquoi.** « Je vois plusieurs parties en cours, "Partie de Sarah", mais on ne peut
+pas les rejoindre. » Sarah est l'hôte des scripts e2e. Lancés contre le serveur de
+développement, ils publiaient sur le sujet de production, et `browser.close()` tue les
+pages sans `pagehide` : chaque lancement laissait quatre minutes une partie en pleine
+manche, menant à un hôte disparu. Et même une vraie partie commencée ne s'ouvre qu'à
+ses anciens joueurs (`GAME_ALREADY_STARTED`) : le lien « Revenir » promettait une
+entrée que le moteur refuse à tous les autres.
+
+**Coût.** L'annuaire de développement est lui aussi public et partagé par tous ceux qui
+lancent `npm run dev`. Un ancien joueur qui a changé d'appareil ne revient plus d'un
+toucher depuis la liste : il tape son code, comme avant l'annuaire. Sur le même
+appareil, le bandeau « Partie en cours » le ramène toujours.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**

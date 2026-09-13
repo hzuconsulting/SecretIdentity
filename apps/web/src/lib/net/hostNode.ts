@@ -128,7 +128,7 @@ export class HostNode implements GameNode {
     this.releaseScreen = keepScreenAwake();
     // Partie restaurée ou reprise : elle existe déjà, on l'annonce sans
     // attendre la prochaine diffusion d'état.
-    void this.host.store.get(this.code).then((game) => this.announce(game), () => {});
+    this.syncDirectory();
   }
 
   /**
@@ -527,9 +527,32 @@ export class HostNode implements GameNode {
     });
   }
 
-  /** Met l'annuaire au diapason de la partie — une partie disparue s'en retire. */
+  /**
+   * Met l'annuaire au diapason de la partie.
+   *
+   * Une partie disparue s'en retire, et une partie où personne n'accueillerait
+   * un nouveau venu aussi : l'annuaire promet qu'en entrant, on trouvera du
+   * monde.
+   */
   private announce(game: Game | undefined): void {
-    this.directory?.update(game ? describeGame(game) : null);
+    this.directory?.update(game && this.attended() ? describeGame(game) : null);
+  }
+
+  private syncDirectory(): void {
+    void this.host.store.get(this.code).then((game) => this.announce(game), () => {});
+  }
+
+  /**
+   * `true` si quelqu'un est là : l'hôte a son écran sous les yeux, ou un invité
+   * au moins est connecté.
+   *
+   * Un hôte seul, écran caché, a changé d'application ou verrouillé son
+   * téléphone. Le système gèle l'onglet dans la foulée : même en arrivant, un
+   * joueur ne trouverait qu'un moteur figé.
+   */
+  private attended(): boolean {
+    if (this.connections.size > 0) return true;
+    return typeof document === 'undefined' || document.visibilityState === 'visible';
   }
 
   /**
@@ -586,18 +609,32 @@ export class HostNode implements GameNode {
   }
 
   /**
-   * Réveil au retour au premier plan.
+   * Réveil au retour au premier plan, retrait au départ.
    *
-   * C'est le moment critique : le téléphone de l'hôte vient de passer plusieurs
-   * minutes verrouillé, ses minuteurs sont en retard, et les autres joueurs
-   * attendent devant un décompte à zéro. `tickAll` rattrape toutes les
-   * échéances d'un coup.
+   * Le retour est le moment critique : le téléphone de l'hôte vient de passer
+   * plusieurs minutes verrouillé, ses minuteurs sont en retard, et les autres
+   * joueurs attendent devant un décompte à zéro. `tickAll` rattrape toutes les
+   * échéances d'un coup, et la partie reprend sa place dans l'annuaire.
+   *
+   * Le départ, c'est un hôte seul qui change d'application ou verrouille son
+   * écran. Ni `pagehide` ni aucun minuteur ne partiront : l'onglet sera gelé
+   * dans quelques secondes. On retire donc l'annonce tout de suite, par un
+   * envoi qui survit au gel — sans quoi elle traînait dans la liste jusqu'à sa
+   * péremption, quatre minutes plus tard.
    */
   private watchWindow(): void {
     if (typeof window === 'undefined') return;
 
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void this.host.tickAll();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void this.host.tickAll();
+        this.syncDirectory();
+      } else if (!this.attended()) {
+        // `update(null)` d'abord : sans lui, l'annonceur republierait la
+        // partie au créneau suivant, si l'onglet n'est pas encore gelé.
+        this.directory?.update(null);
+        this.directory?.withdrawNow();
+      }
     };
     const onHide = () => {
       this.persistNow();
@@ -606,11 +643,11 @@ export class HostNode implements GameNode {
       this.directory?.withdrawNow();
     };
 
-    document.addEventListener('visibilitychange', onVisible);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
 
     this.detachWindow = () => {
-      document.removeEventListener('visibilitychange', onVisible);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHide);
     };
   }

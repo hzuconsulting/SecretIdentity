@@ -210,6 +210,17 @@ describe('agrégation', () => {
     expect(games.map((game) => game.code)).toEqual(['BBBBB']);
   });
 
+  it('écarte une partie où personne n’est connecté', () => {
+    const games = aggregateDirectory(
+      [
+        record(NOW - 5_000, open({ code: 'AAAAA', players: 0 })),
+        record(NOW - 5_000, open({ code: 'BBBBB', players: 1 })),
+      ],
+      NOW,
+    );
+    expect(games.map((game) => game.code)).toEqual(['BBBBB']);
+  });
+
   it('donne raison à la génération la plus haute, même plus ancienne', () => {
     // L'ancien hôte, revenu après une reprise, retire « sa » partie : ça ne
     // doit pas effacer l'annonce du joueur qui l'héberge désormais.
@@ -325,6 +336,15 @@ describe('ce qu’une partie publie d’elle-même', () => {
 
   it('ne publie plus rien d’une partie terminée', () => {
     expect(describeGame(game({ phase: 'FINAL_RESULTS', currentRound: TOTAL_ROUNDS }))).toBeNull();
+  });
+
+  it('ne publie rien d’une partie où personne n’est connecté', () => {
+    // Le cas d'une reprise d'hébergement, avant que quiconque soit revenu.
+    const players = new Map<string, Player>([
+      ['p1', player('p1', 'Zoé', false)],
+      ['p2', player('p2', 'Léo', false)],
+    ]);
+    expect(describeGame(game({ players }))).toBeNull();
   });
 
   it('ne laisse sortir aucun secret', () => {
@@ -480,6 +500,26 @@ describe('l’annonceur', () => {
     expect(types()).toEqual(['open', 'closed']);
     expect(sent[1]?.final).toBe(true);
 
+    vi.advanceTimersByTime(MIN_PUBLISH_INTERVAL_MS);
+    expect(types()).toEqual(['open', 'closed', 'open']);
+  });
+
+  it('retire tout de suite une partie laissée sans personne, jusqu’au retour de quelqu’un', () => {
+    announcer.update(listing());
+    vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS);
+
+    // L'hôte, seul, change d'application : ce que fait `hostNode.ts`.
+    announcer.update(null);
+    announcer.withdrawNow();
+    expect(types()).toEqual(['open', 'closed']);
+    expect(sent[1]?.final).toBe(true);
+
+    // Ni republication ni battement tant que la partie reste vide.
+    vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    expect(sent).toHaveLength(2);
+
+    // L'hôte revient : l'annonce repart.
+    announcer.update(listing());
     vi.advanceTimersByTime(MIN_PUBLISH_INTERVAL_MS);
     expect(types()).toEqual(['open', 'closed', 'open']);
   });

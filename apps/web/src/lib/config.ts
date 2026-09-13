@@ -132,11 +132,18 @@ export const ICE_SERVERS = readIceServers();
  * qui en est lu est donc revalidé, et l'annuaire n'est qu'un raccourci — le
  * code reste la seule chose qui fait entrer dans une partie.
  *
+ * Le site déployé et `npm run dev` n'écrivent pas sur le même sujet : les
+ * parties de développement et de test (`scripts/e2e-*.mjs`) resteraient sinon
+ * dans la liste des vrais joueurs, qui ne pourraient pas les rejoindre (D-91).
+ *
  * `NEXT_PUBLIC_DIRECTORY_URL` remplace l'URL complète du sujet (un ntfy à soi,
  * ou un autre sujet), `off` désactive l'annuaire : plus d'annonce, plus de
  * liste. Le numéro de version du sujet suit celui du format des annonces.
  */
-const DEFAULT_DIRECTORY_URL = 'https://ntfy.sh/identite-secrete-v1-parties-3k3p9bm824e';
+const DEFAULT_DIRECTORY_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://ntfy.sh/identite-secrete-v1-parties-3k3p9bm824e'
+    : 'https://ntfy.sh/identite-secrete-v1-parties-dev-3k3p9bm824e';
 
 function readDirectoryUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_DIRECTORY_URL?.trim();

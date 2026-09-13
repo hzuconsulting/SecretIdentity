@@ -199,16 +199,19 @@ function OpenGameRow({ game }: { game: OpenGame }) {
       <span
         className={[
           'shrink-0 rounded-full px-3 py-1.5 font-display text-xs font-extrabold uppercase tracking-wide',
-          full ? 'bg-lilac text-muted' : playing ? 'bg-violet-light text-violet-dark' : 'bg-violet text-white',
+          full || playing ? 'bg-lilac text-muted' : 'bg-violet text-white',
         ].join(' ')}
       >
-        {full ? 'Complet' : playing ? 'Revenir' : 'Rejoindre'}
+        {full ? 'Complet' : playing ? 'En cours' : 'Rejoindre'}
       </span>
     </>
   );
 
-  // Un salon plein ne mène nulle part : on le montre, sans en faire un lien.
-  if (full) return <div className={`${ROW} opacity-70`}>{content}</div>;
+  // Un salon plein ne mène nulle part, une partie commencée non plus : le
+  // moteur n'y laisse revenir que ses anciens joueurs, qui ont pour cela le
+  // bandeau « Partie en cours » ou leur code (D-91). On les montre, sans en
+  // faire un lien.
+  if (full || playing) return <div className={`${ROW} opacity-70`}>{content}</div>;
 
   return (
     <Link
@@ -221,7 +224,8 @@ function OpenGameRow({ game }: { game: OpenGame }) {
 }
 
 function describeStatus(game: OpenGame): string {
-  // Un salon plein le dit déjà sur sa pastille « Complet ».
+  // Un salon plein le dit déjà sur sa pastille « Complet », une partie
+  // commencée sur la sienne, « En cours ».
   if (game.status === 'lobby') return 'Au salon';
-  return game.round > 0 ? `En cours · manche ${game.round}/${game.rounds}` : 'En cours';
+  return game.round > 0 ? `Manche ${game.round}/${game.rounds}` : 'Partie commencée';
 }

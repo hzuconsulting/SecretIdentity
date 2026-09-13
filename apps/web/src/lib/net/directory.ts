@@ -23,8 +23,10 @@ import {
  *    ce qui en est lu passe par un schéma strict, et une annonce ne donne
  *    jamais qu'un code — qu'on peut de toute façon taper à la main. Rien de
  *    secret n'y est publié : ni jeton, ni identité, ni main.
- *  - **personne ne fait le ménage**. Un hôte qui disparaît sans prévenir laisse
- *    une annonce derrière lui. D'où le battement : une annonce se renouvelle
+ *  - **personne ne fait le ménage**. L'hôte retire lui-même son annonce dès
+ *    que plus personne n'est là pour accueillir (`hostNode.ts`), mais un hôte
+ *    qui disparaît sans prévenir — batterie à plat, réseau perdu — laisse une
+ *    annonce derrière lui. D'où le battement : une annonce se renouvelle
  *    régulièrement, et celle qui ne l'est plus depuis `STALE_MS` est tenue
  *    pour morte.
  *
@@ -59,8 +61,8 @@ export const MIN_PUBLISH_INTERVAL_MS = 10_000;
  * C'est le poste de dépense principal : 36 messages par heure de partie
  * publique, soit environ sept heures sur le quota du jour — une soirée entière,
  * même en partageant l'adresse IP. Les départs normaux (partie privée, finie,
- * fermée) publient un retrait immédiat : ce battement ne sert qu'à faire
- * disparaître un hôte parti **sans** prévenir.
+ * fermée, laissée sans personne) publient un retrait immédiat : ce battement ne
+ * sert qu'à faire disparaître un hôte parti **sans** prévenir.
  */
 export const HEARTBEAT_MS = 100_000;
 
@@ -301,6 +303,9 @@ export function aggregateDirectory(
   for (const { time, message } of latest.values()) {
     if (message.type !== 'open') continue;
     if (now - time > staleMs) continue;
+    // Une partie où personne n'est connecté n'accueillerait personne. Un hôte
+    // à jour ne l'annonce plus ; une version plus ancienne le peut encore.
+    if (message.players === 0) continue;
 
     const { type: _type, at: _at, ...listing } = message;
     open.push({ ...listing, updatedAt: time });
@@ -354,7 +359,8 @@ export function estimateServerNow(records: readonly DirectoryRecord[], localNow:
 
 /**
  * Ce que la partie publie d'elle-même, ou `null` si elle ne doit pas figurer
- * dans l'annuaire : partie privée, terminée, ou sans hôte identifiable.
+ * dans l'annuaire : partie privée, terminée, sans hôte identifiable, ou sans
+ * aucun joueur connecté.
  *
  * C'est la **seule** porte entre l'état complet du moteur et le sujet public :
  * rien d'autre que ces champs ne sort.
@@ -370,6 +376,9 @@ export function describeGame(game: Game): DirectoryListing | null {
 
   let players = 0;
   for (const player of game.players.values()) if (player.connected) players++;
+  // Juste après une reprise d'hébergement, la partie est reconstruite avec
+  // tout le monde déconnecté : rien à montrer tant que personne n'est revenu.
+  if (players === 0) return null;
 
   const lobby = game.phase === 'LOBBY';
 

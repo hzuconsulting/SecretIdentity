@@ -45,6 +45,20 @@ async function typeAfterHydration(page, selector, value) {
 
 const browser = await chromium.launch({ channel: 'chrome', headless: !process.env.HEADED });
 
+/**
+ * Quitte toutes les pages avant de fermer le navigateur.
+ *
+ * `browser.close()` tue les pages sans `pagehide` : l'hôte ne retirerait pas son
+ * annonce, et « Partie de Sarah » resterait quatre minutes dans l'annuaire,
+ * menant à une partie disparue (D-91). Une navigation, elle, déclenche le
+ * retrait ; la pause laisse partir la balise.
+ */
+async function leaveAll() {
+  const pages = browser.contexts().flatMap((ctx) => ctx.pages());
+  await Promise.all(pages.map((page) => page.goto('about:blank').catch(() => {})));
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
+
 // Deux contextes = deux `localStorage` = deux joueurs distincts. C'est la même
 // contrainte qu'en test manuel : deux onglets d'une même fenêtre partagent leur
 // stockage et seraient vus comme un seul joueur.
@@ -117,5 +131,6 @@ try {
 
   console.log('\n✓ PARTIE JOUÉE DE BOUT EN BOUT');
 } finally {
+  await leaveAll();
   await browser.close();
 }

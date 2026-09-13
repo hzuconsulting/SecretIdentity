@@ -40,6 +40,20 @@ async function newPlayer(nom) {
 
 const ok = (m) => console.log(`\u2713 ${m}`);
 
+/**
+ * Quitte toutes les pages avant de fermer le navigateur.
+ *
+ * `browser.close()` tue les pages sans `pagehide` : l'hôte ne retirerait pas son
+ * annonce, et « Partie de Sarah » resterait quatre minutes dans l'annuaire,
+ * menant à une partie disparue (D-91). Une navigation, elle, déclenche le
+ * retrait ; la pause laisse partir la balise.
+ */
+async function leaveAll() {
+  const pages = browser.contexts().flatMap((ctx) => ctx.pages());
+  await Promise.all(pages.map((page) => page.goto('about:blank').catch(() => {})));
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
+
 try {
   const host = await newPlayer('Sarah');
   const allan = await newPlayer('Allan');
@@ -289,5 +303,6 @@ try {
   if (erreurs.length > 0) throw new Error(`erreurs de page :\n${erreurs.join('\n')}`);
   console.log('\nOK - MANCHE COMPLETE, REGLES DU LIVRET RESPECTEES');
 } finally {
+  await leaveAll();
   await browser.close();
 }

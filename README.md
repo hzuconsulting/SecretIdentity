@@ -241,7 +241,7 @@ Toutes optionnelles. Voir [`.env.example`](./.env.example), commenté.
 | `NEXT_PUBLIC_PEER_KEY` | — | Clé du PeerServer |
 | `NEXT_PUBLIC_PEER_SECURE` | `true` | `false` pour un PeerServer en clair (local) |
 | `NEXT_PUBLIC_ICE_SERVERS` | 2 STUN + 3 TURN publics | Tableau JSON de `RTCIceServer`. **Remplace** toute la liste |
-| `NEXT_PUBLIC_DIRECTORY_URL` | sujet ntfy.sh public | Annuaire des parties publiques (URL d'un sujet ntfy). `off` le désactive |
+| `NEXT_PUBLIC_DIRECTORY_URL` | sujet ntfy.sh public (un autre en `npm run dev`) | Annuaire des parties publiques (URL d'un sujet ntfy). `off` le désactive |
 
 ⚠️ Ces variables sont figées au moment du `next build`. Les changer impose de
 **reconstruire**, pas seulement de redémarrer.
