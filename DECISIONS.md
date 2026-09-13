@@ -1502,6 +1502,32 @@ pour que le bouton d'action final reste toujours dégagé.
 
 ---
 
+### D-93 · Un annuaire saturé se dit, et les tests n'y écrivent plus
+
+**Décision.** Quand ntfy.sh refuse une annonce (HTTP 429), l'annonceur passe à l'état
+`saturated` (`DirectoryAnnouncer.onHealth`, relayé par `GameNode.onListing`). L'hôte d'une
+partie publique voit alors, sous le code à partager : « Ta partie n'apparaît pas dans la
+liste de l'accueil… Envoie le code à tes amis ». L'alerte disparaît à la première annonce
+acceptée. Un simple échec réseau ne la déclenche pas. Les scripts `e2e-*.mjs` lancent
+Chrome avec ntfy.sh rendu introuvable au niveau DNS (`--host-resolver-rules`) : aucune
+annonce, aucune relecture. `leaveAll()` (D-91) disparaît avec eux.
+
+**Pourquoi.** « On ne voit plus les salons, alors que je suis bien dans le salon à
+attendre mes potes. » Le code annonçait normalement, mais `ntfy.sh/v1/account` indiquait
+250 messages consommés sur 250 pour l'adresse IP : chaque annonce était refusée, en
+silence. Sur les 261 messages de la journée, une centaine venaient des scripts e2e
+(« Partie de Sarah »), le reste des vraies parties jouées derrière la même box. Le quota
+est par adresse IP, tous sujets confondus : le sujet de développement de D-91 ne
+protégeait rien.
+
+**Coût.** Les scripts e2e ne couvrent plus l'annuaire ; `directory.test.ts` le couvre sans
+réseau. L'alerte n'apparaît qu'au premier refus, environ 3 s après la création du salon.
+Elle ne peut rien réparer : jusqu'à la remise à zéro de 00:00 UTC, on ne rejoint qu'avec
+le code, sauf si l'hôte change d'adresse IP, par exemple en 4G. Un quota propre
+demanderait un ntfy à soi (`NEXT_PUBLIC_DIRECTORY_URL`).
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**

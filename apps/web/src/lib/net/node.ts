@@ -1,6 +1,7 @@
 'use client';
 
 import type { Ack } from '@identite-secrete/shared';
+import type { ListingHealthHandler } from './directory';
 
 /**
  * Ce que l'interface voit du réseau.
@@ -37,6 +38,11 @@ export interface GameNode {
   on<T>(event: string, handler: (payload: T) => void): void;
   off<T>(event: string, handler: (payload: T) => void): void;
   onStatus(handler: StatusHandler): () => void;
+  /**
+   * L'état de l'annonce de la partie dans l'annuaire de l'accueil. Seul le
+   * nœud qui héberge publie : un invité répond toujours `ok`.
+   */
+  onListing(handler: ListingHealthHandler): () => void;
   close(): void;
 }
 

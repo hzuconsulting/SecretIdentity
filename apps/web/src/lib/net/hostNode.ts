@@ -18,7 +18,7 @@ import {
   GUEST_SILENCE_TIMEOUT_MS,
   peerIdForCode,
 } from '@/lib/config';
-import { createAnnouncer, describeGame } from './directory';
+import { createAnnouncer, describeGame, type ListingHealthHandler } from './directory';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { PeerUnavailableError, openPeer } from './peer';
 import { clearHostedGame, loadHostedGame, saveHostedGame } from './hostStorage';
@@ -295,6 +295,13 @@ export class HostNode implements GameNode {
 
   onStatus(handler: StatusHandler): () => void {
     return this.events.onStatus(handler);
+  }
+
+  /** Annuaire désactivé : rien n'est refusé, puisque rien n'est publié. */
+  onListing(handler: ListingHealthHandler): () => void {
+    if (this.directory) return this.directory.onHealth(handler);
+    handler('ok');
+    return () => {};
   }
 
   /**

@@ -539,6 +539,60 @@ describe('l’annonceur', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('dit à l’hôte que sa partie n’est plus listée, puis qu’elle l’est de nouveau', async () => {
+    const seen: string[] = [];
+    announcer.onHealth((health) => seen.push(health));
+    // L'état courant arrive dès l'abonnement.
+    expect(seen).toEqual(['ok']);
+
+    outcome = 'rate-limited';
+    announcer.update(listing());
+    vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS);
+    await Promise.resolve();
+    expect(announcer.health).toBe('saturated');
+    expect(seen).toEqual(['ok', 'saturated']);
+
+    // Toujours refusé après la pause : rien de nouveau à dire.
+    vi.advanceTimersByTime(RATE_LIMIT_PAUSE_MS);
+    await Promise.resolve();
+    expect(sent).toHaveLength(2);
+    expect(seen).toEqual(['ok', 'saturated']);
+
+    outcome = 'ok';
+    vi.advanceTimersByTime(RATE_LIMIT_PAUSE_MS);
+    await Promise.resolve();
+    expect(announcer.health).toBe('ok');
+    expect(seen).toEqual(['ok', 'saturated', 'ok']);
+  });
+
+  it('ne crie pas à la saturation pour un simple échec réseau', async () => {
+    const seen: string[] = [];
+    announcer.onHealth((health) => seen.push(health));
+
+    outcome = 'failed';
+    announcer.update(listing());
+    vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS);
+    await Promise.resolve();
+
+    expect(sent).toHaveLength(1);
+    expect(announcer.health).toBe('ok');
+    expect(seen).toEqual(['ok']);
+  });
+
+  it('se tait après l’arrêt', async () => {
+    const seen: string[] = [];
+    const unsubscribe = announcer.onHealth((health) => seen.push(health));
+    unsubscribe();
+
+    outcome = 'rate-limited';
+    announcer.update(listing());
+    vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS);
+    await Promise.resolve();
+
+    expect(announcer.health).toBe('saturated');
+    expect(seen).toEqual(['ok']);
+  });
+
   it('survit à un service injoignable', async () => {
     const failing = new DirectoryAnnouncer(() => Promise.reject(new Error('hors ligne')));
     const throwing = new DirectoryAnnouncer(() => {

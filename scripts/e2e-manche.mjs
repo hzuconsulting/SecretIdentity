@@ -20,7 +20,17 @@ async function typeAfterHydration(page, selector, value) {
   throw new Error(`la saisie de ${selector} n'a pas tenu`);
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: !process.env.HEADED });
+/**
+ * ntfy.sh est rendu introuvable, au niveau DNS : balises et envois `keepalive`
+ * compris, que `page.route` peut laisser filer. Chaque lancement publiait sinon
+ * une trentaine d'annonces, prises sur le quota de 250 messages par jour que
+ * l'adresse IP partage avec les vraies parties du même Wi-Fi (D-93).
+ */
+const browser = await chromium.launch({
+  channel: 'chrome',
+  headless: !process.env.HEADED,
+  args: ['--host-resolver-rules=MAP ntfy.sh ~NOTFOUND'],
+});
 const erreurs = [];
 // Les portraits sont livrés avec le site : pendant une partie, aucun téléphone
 // ne doit contacter Wikimedia (D-85).
@@ -39,20 +49,6 @@ async function newPlayer(nom) {
 }
 
 const ok = (m) => console.log(`\u2713 ${m}`);
-
-/**
- * Quitte toutes les pages avant de fermer le navigateur.
- *
- * `browser.close()` tue les pages sans `pagehide` : l'hôte ne retirerait pas son
- * annonce, et « Partie de Sarah » resterait quatre minutes dans l'annuaire,
- * menant à une partie disparue (D-91). Une navigation, elle, déclenche le
- * retrait ; la pause laisse partir la balise.
- */
-async function leaveAll() {
-  const pages = browser.contexts().flatMap((ctx) => ctx.pages());
-  await Promise.all(pages.map((page) => page.goto('about:blank').catch(() => {})));
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
-}
 
 try {
   const host = await newPlayer('Sarah');
@@ -303,6 +299,5 @@ try {
   if (erreurs.length > 0) throw new Error(`erreurs de page :\n${erreurs.join('\n')}`);
   console.log('\nOK - MANCHE COMPLETE, REGLES DU LIVRET RESPECTEES');
 } finally {
-  await leaveAll();
   await browser.close();
 }

@@ -26,6 +26,11 @@ interface LobbyScreenProps {
   connectionLost: boolean;
   error: GameError | null;
   onDismissError: () => void;
+  /**
+   * `true` chez l'hôte quand l'annuaire refuse ses annonces : la partie
+   * n'apparaît pas sur l'accueil des autres (D-93).
+   */
+  listingSaturated?: boolean;
   onUpdateSettings: (patch: Partial<Settings>) => Promise<GameError | null>;
   onStart: () => Promise<GameError | null>;
   onLeave: () => Promise<void>;
@@ -44,6 +49,7 @@ export function LobbyScreen({
   connectionLost,
   error,
   onDismissError,
+  listingSaturated = false,
   onUpdateSettings,
   onStart,
   onLeave,
@@ -140,6 +146,17 @@ export function LobbyScreen({
         </p>
       ) : null}
 
+      {listingSaturated && view.settings.visibility !== 'private' ? (
+        <p
+          role="status"
+          className="rounded-tile bg-sun-light px-4 py-3 text-sm font-semibold text-ink"
+        >
+          Ta partie n’apparaît pas dans la liste de l’accueil : le service gratuit qui
+          la tient a atteint sa limite du jour pour ton réseau (retour vers{' '}
+          {quotaResetHour()} h). Envoie le code à tes amis, il marche toujours.
+        </p>
+      ) : null}
+
       <ErrorBanner error={error} onDismiss={onDismissError} />
 
       <PlayerList
@@ -175,4 +192,15 @@ export function LobbyScreen({
       </div>
     </main>
   );
+}
+
+/**
+ * Heure locale de la remise à zéro du quota ntfy.sh : minuit UTC, soit 2 h à
+ * Paris l'été, 1 h l'hiver.
+ */
+function quotaResetHour(): number {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+  ).getHours();
 }

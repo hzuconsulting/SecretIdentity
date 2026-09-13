@@ -44,6 +44,7 @@ export function GameClient({ code }: { code: string }) {
     leave,
     dismissError,
     hosting,
+    listing,
   } = useGameConnection(code);
 
   const router = useRouter();
@@ -210,6 +211,7 @@ export function GameClient({ code }: { code: string }) {
             connectionLost={status === 'lost'}
             error={error}
             onDismissError={dismissError}
+            listingSaturated={hosting && listing === 'saturated'}
             onUpdateSettings={updateSettings}
             onStart={startGame}
             onLeave={leave}

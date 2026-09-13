@@ -15,6 +15,7 @@ import {
   type ToastPayload,
 } from '@identite-secrete/shared';
 import { closeCurrent, getNode, onNodeReplaced, type GameNode, type NodeStatus } from '@/lib/net';
+import type { ListingHealth } from '@/lib/net/directory';
 import { clearSession, loadSession, saveSession } from '@/lib/session';
 
 /**
@@ -52,6 +53,8 @@ export interface GameConnection {
   toasts: Toast[];
   /** `true` si le moteur de la partie tourne dans cet onglet. */
   hosting: boolean;
+  /** L'annonce de la partie sur l'accueil. `saturated` ne peut venir que de l'hôte. */
+  listing: ListingHealth;
   join: (nickname: string) => Promise<GameError | null>;
   startGame: () => Promise<GameError | null>;
   submitClues: (placed: PlacedPicto[]) => Promise<GameError | null>;
@@ -71,6 +74,7 @@ export function useGameConnection(code: string): GameConnection {
   const [view, setView] = useState<PlayerView | null>(null);
   const [error, setError] = useState<GameError | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [listing, setListing] = useState<ListingHealth>('ok');
 
   // Évite de relancer une reprise de session pendant qu'une autre est en cours.
   const rejoining = useRef(false);
@@ -234,6 +238,7 @@ export function useGameConnection(code: string): GameConnection {
     node.on('connect', handleConnect);
 
     const unsubscribe = node.onStatus(handleNodeStatus);
+    const unsubscribeListing = node.onListing(setListing);
 
     // Le canal est déjà ouvert quand on arrive ici : on reprend la session tout
     // de suite, sans attendre un `connect` qui n'aura pas lieu.
@@ -246,6 +251,7 @@ export function useGameConnection(code: string): GameConnection {
       node.off(SERVER_EVENTS.kicked, handleKicked);
       node.off('connect', handleConnect);
       unsubscribe();
+      unsubscribeListing();
     };
   }, [node, restore, pushToast, code]);
 
@@ -344,6 +350,7 @@ export function useGameConnection(code: string): GameConnection {
     error,
     toasts,
     hosting: node?.hosting ?? false,
+    listing,
     join,
     startGame,
     submitClues,

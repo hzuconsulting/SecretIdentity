@@ -10,6 +10,7 @@ import {
   REQUEST_TIMEOUT_MS,
   peerIdForCode,
 } from '@/lib/config';
+import type { ListingHealthHandler } from './directory';
 import { NodeEvents, type GameNode, type NodeStatus, type StatusHandler } from './node';
 import { openPeer } from './peer';
 import { encodeMessage, parseHostMessage } from './protocol';
@@ -156,6 +157,12 @@ export class GuestNode implements GameNode {
 
   onStatus(handler: StatusHandler): () => void {
     return this.events.onStatus(handler);
+  }
+
+  /** Un invité n'annonce rien : il n'a rien à signaler. */
+  onListing(handler: ListingHealthHandler): () => void {
+    handler('ok');
+    return () => {};
   }
 
   close(): void {

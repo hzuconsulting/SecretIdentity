@@ -422,6 +422,18 @@ export type PublishOutcome = 'ok' | 'rate-limited' | 'failed';
 export type Publish = (body: string, options: { final: boolean }) => Promise<PublishOutcome>;
 
 /**
+ * Ce que l'hôte doit savoir de son annonce.
+ *
+ * `saturated` : le service refuse nos messages (HTTP 429). En pratique, c'est
+ * le quota de 250 messages par jour de l'adresse IP, partagé par tous les
+ * appareils derrière la même box, qui est épuisé : la partie n'apparaît plus
+ * sur l'accueil des autres jusqu'à sa remise à zéro, à 00:00 UTC (D-93).
+ */
+export type ListingHealth = 'ok' | 'saturated';
+
+export type ListingHealthHandler = (health: ListingHealth) => void;
+
+/**
  * Tient l'annonce d'une partie à jour, sans jamais dépasser le débit permis.
  *
  * On lui dit ce qui **devrait** figurer dans l'annuaire (`update`), aussi
@@ -435,10 +447,13 @@ export type Publish = (body: string, options: { final: boolean }) => Promise<Pub
  *    précédent, ni pendant la pause qui suit un refus du service.
  *
  * Il ne lève jamais : un annuaire injoignable ne coûte que la visibilité de la
- * partie, jamais la partie.
+ * partie, jamais la partie. Mais un refus du service se dit (`onHealth`) : sans
+ * ça, l'hôte attendait devant un salon que personne ne pouvait voir.
  */
 export class DirectoryAnnouncer {
   private desired: DirectoryListing | null = null;
+  private currentHealth: ListingHealth = 'ok';
+  private readonly healthHandlers = new Set<ListingHealthHandler>();
   /** Dernière annonce envoyée, `null` si rien ne figure (ou plus) à notre nom. */
   private published: DirectoryListing | null = null;
   /** Premier changement non publié, `null` si l'annuaire est à jour. */
@@ -449,6 +464,20 @@ export class DirectoryAnnouncer {
   private stopped = false;
 
   constructor(private readonly publish: Publish) {}
+
+  get health(): ListingHealth {
+    return this.currentHealth;
+  }
+
+  /**
+   * S'abonne à l'état de l'annonce. L'abonné reçoit l'état courant tout de
+   * suite : l'écran du salon se monte souvent après le premier refus.
+   */
+  onHealth(handler: ListingHealthHandler): () => void {
+    this.healthHandlers.add(handler);
+    handler(this.currentHealth);
+    return () => this.healthHandlers.delete(handler);
+  }
 
   /** Ce qui devrait figurer dans l'annuaire. `null` : rien, ou plus rien. */
   update(listing: DirectoryListing | null): void {
@@ -483,6 +512,7 @@ export class DirectoryAnnouncer {
     this.stopped = true;
     this.published = null;
     this.desired = null;
+    this.healthHandlers.clear();
   }
 
   private refreshChanged(now: number): void {
@@ -559,15 +589,27 @@ export class DirectoryAnnouncer {
 
     void pending.then(
       (outcome) => {
-        if (outcome === 'ok') return;
+        // Un échec réseau est ponctuel, il ne dit rien du service : seuls un
+        // succès et un refus pour excès de débit changent l'état.
+        if (outcome === 'ok') {
+          this.setHealth('ok');
+          return;
+        }
         console.debug(`[annuaire] publication ${outcome === 'rate-limited' ? 'refusée (débit)' : 'échouée'}`);
         if (outcome === 'rate-limited') {
+          this.setHealth('saturated');
           this.pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
           this.plan();
         }
       },
       (cause: unknown) => console.debug('[annuaire] publication impossible', cause),
     );
+  }
+
+  private setHealth(health: ListingHealth): void {
+    if (this.stopped || this.currentHealth === health) return;
+    this.currentHealth = health;
+    for (const handler of [...this.healthHandlers]) handler(health);
   }
 
   private clearTimer(): void {

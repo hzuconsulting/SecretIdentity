@@ -43,21 +43,17 @@ async function typeAfterHydration(page, selector, value) {
   throw new Error(`la saisie de ${selector} n'a pas tenu`);
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: !process.env.HEADED });
-
 /**
- * Quitte toutes les pages avant de fermer le navigateur.
- *
- * `browser.close()` tue les pages sans `pagehide` : l'hôte ne retirerait pas son
- * annonce, et « Partie de Sarah » resterait quatre minutes dans l'annuaire,
- * menant à une partie disparue (D-91). Une navigation, elle, déclenche le
- * retrait ; la pause laisse partir la balise.
+ * ntfy.sh est rendu introuvable, au niveau DNS : balises et envois `keepalive`
+ * compris, que `page.route` peut laisser filer. Chaque lancement publiait sinon
+ * une trentaine d'annonces, prises sur le quota de 250 messages par jour que
+ * l'adresse IP partage avec les vraies parties du même Wi-Fi (D-93).
  */
-async function leaveAll() {
-  const pages = browser.contexts().flatMap((ctx) => ctx.pages());
-  await Promise.all(pages.map((page) => page.goto('about:blank').catch(() => {})));
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
-}
+const browser = await chromium.launch({
+  channel: 'chrome',
+  headless: !process.env.HEADED,
+  args: ['--host-resolver-rules=MAP ntfy.sh ~NOTFOUND'],
+});
 
 // Deux contextes = deux `localStorage` = deux joueurs distincts. C'est la même
 // contrainte qu'en test manuel : deux onglets d'une même fenêtre partagent leur
@@ -154,6 +150,5 @@ try {
 
   console.log('\n✓ PARTIE JOUÉE DE BOUT EN BOUT');
 } finally {
-  await leaveAll();
   await browser.close();
 }
