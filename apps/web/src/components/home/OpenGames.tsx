@@ -129,7 +129,7 @@ export function OpenGames() {
       <div className="flex items-center justify-between gap-3 px-1">
         <h2
           id="open-games-title"
-          className="font-display text-xs font-extrabold uppercase tracking-widest text-muted"
+          className="font-display text-sm font-extrabold uppercase tracking-widest text-ink"
         >
           Parties ouvertes
         </h2>

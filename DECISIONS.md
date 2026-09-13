@@ -1368,6 +1368,24 @@ lui, est lisible tout de suite.
 
 ---
 
+### D-88 · L'accueil montre les parties ouvertes sans défiler
+
+**Décision.** Le titre tient sur une ligne, le slogan rapetisse, et le héros « Cléopâtre »
+devient une petite carte « Comment jouer ? », placée sous la liste des parties ouvertes.
+L'ordre est désormais : titre, partie à reprendre, `CRÉER` / `REJOINDRE`, parties
+ouvertes, règles.
+
+**Pourquoi.** « On ne voit pas tout de suite qu'il y a des parties en cours. » Sur un
+téléphone de 390 × 844, la liste commençait à 610 px ; sur 360 × 700, elle était
+entièrement sous le pli, et plus bas encore avec le bandeau de reprise. Elle commence
+maintenant vers 285 px. L'illustration et les règles se lisent une fois ; la liste, on la
+consulte à chaque soirée.
+
+**Coût.** L'animation d'entrée des icônes en éventail disparaît avec le héros, et
+l'accueil ne charge plus `framer-motion`.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**

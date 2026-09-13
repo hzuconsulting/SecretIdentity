@@ -233,11 +233,11 @@ distingue un navigateur incapable d'un ami qui a fermé son onglet.
 
 | À vérifier | Attendu |
 |---|---|
-| Titre | `IDENTITÉ SECRÈTE`, « Secrète » en violet |
-| Héros | Carte sombre « Cléopâtre » + cinq icônes en éventail, numérotées 1 à 5 |
+| Titre | `IDENTITÉ SECRÈTE` sur une ligne, « Secrète » en violet |
+| Parties ouvertes | Sur un téléphone, visibles sans défiler, juste sous `CRÉER` / `REJOINDRE` |
 | Bandeau du bas | Point **vert**, « Prêt · aucun serveur nécessaire, les téléphones se parlent directement » |
 | Compteur | « 3 à 8 joueurs · 293 identités · 349 icônes » |
-| `COMMENT JOUER ?` | Ouvre `/comment-jouer`, cinq étapes numérotées, retour vers l'accueil |
+| `COMMENT JOUER ?` | Petite carte sous la liste (« Cléopâtre » + cinq icônes) ; ouvre `/comment-jouer`, cinq étapes numérotées, retour vers l'accueil |
 | `CRÉER` / `REJOINDRE` | Mènent à `/creer` et `/rejoindre` |
 
 ### 2.3 Le salon à deux navigateurs
