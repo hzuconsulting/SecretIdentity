@@ -35,6 +35,7 @@ import { currentRound, identityOf, opponentIdsFor } from '../game/round';
  *   progression **booléenne** des autres. Jamais leurs mains ni leurs numéros.
  * - `GUESSING` — les boîtiers des adversaires, **nommés** : dans les règles, on
  *   vote en regardant le boîtier posé devant chacun. Toujours pas leurs numéros.
+ *   Et, en rappel, le sien — réduit lui aussi à l'image et à la zone.
  * - `RESULTS` — tout est révélé.
  * - `SCOREBOARD` / `FINAL_RESULTS` — classement, puis statistiques.
  */
@@ -218,6 +219,10 @@ function addVotingMaterial(
   }
 
   view.opponents = opponents;
+  // Son propre boîtier, en rappel : autour de la table, on l'a sous les yeux
+  // pendant qu'on vote. Même réduction que pour les adversaires — la carte
+  // d'origine n'a plus rien à faire à l'écran. Vide pour qui n'a pas été servi.
+  view.yourCase = (mine?.placed ?? []).map(({ iconId, zone }) => ({ iconId, zone }));
   view.yourVotes = { ...(mine?.votes ?? {}) };
   view.yourVotesSubmitted = mine?.votesSubmitted ?? false;
 }

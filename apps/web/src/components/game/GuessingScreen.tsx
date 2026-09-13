@@ -5,8 +5,10 @@ import {
   getIdentity,
   secondsRemaining,
   type GameError,
+  type OpponentCase,
   type PlayerId,
   type PlayerView,
+  type ShownPicto,
   type Slot,
 } from '@identite-secrete/shared';
 import { useServerClock } from '@/hooks/useServerClock';
@@ -30,6 +32,13 @@ interface GuessingScreenProps {
 const AUTO_SUBMIT_AT_SECONDS = 1;
 
 /**
+ * Teinte d'un numéro déjà attribué à un autre joueur. Chrome et Android la
+ * respectent sur `<option>` ; iOS Safari l'ignore — d'où la mention « déjà
+ * pour … » dans le libellé, qui porte seule le signal là-bas.
+ */
+const TAKEN_OPTION_STYLE = { color: '#9ca3af' } as const;
+
+/**
  * Phase de vote.
  *
  * Nominative, comme dans le livret : chaque boîtier est posé devant son
@@ -42,7 +51,8 @@ const AUTO_SUBMIT_AT_SECONDS = 1;
  * numéro**. Plutôt que de refuser un numéro déjà attribué avec un message
  * d'erreur, on **échange** les deux votes — c'est le geste qu'on voudrait faire
  * de toute façon, et ça évite d'imposer un « désélectionner d'abord » qui
- * n'apprend rien.
+ * n'apprend rien. Un numéro déjà donné à un autre reste donc proposé, mais
+ * grisé et suivi de « déjà pour … » : on sait, avant de toucher, qu'on échange.
  *
  * Le sélecteur est un `<select>` natif : sur téléphone il ouvre la roue système,
  * plus rapide et plus accessible que n'importe quelle liste maison.
@@ -58,6 +68,16 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
   const [votes, setVotes] = useState<Record<PlayerId, Slot>>(view.yourVotes ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<GameError | null>(null);
+
+  // Qui tient déjà quel numéro, pour le signaler dans les listes des autres.
+  const holders = useMemo(() => {
+    const map = new Map<Slot, OpponentCase>();
+    for (const opponent of opponents) {
+      const slot = votes[opponent.playerId];
+      if (slot !== undefined) map.set(slot, opponent);
+    }
+    return map;
+  }, [opponents, votes]);
 
   const submitRef = useRef<((value: Record<PlayerId, Slot>) => Promise<void>) | null>(null);
 
@@ -157,6 +177,8 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
         </div>
 
         <WaitingPanel view={view} verb="a validé ses votes" onKick={onKick} />
+
+        <OwnCaseReminder placed={view.yourCase} />
       </PhaseShell>
     );
   }
@@ -169,6 +191,8 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
       <PhaseAnnouncement label="Attribue un numéro du plateau à chaque joueur." />
 
       <BoardGrid board={board} compact />
+
+      <OwnCaseReminder placed={view.yourCase} />
 
       <p className="text-sm font-semibold text-muted">
         Attention : tous les numéros ne sont pas forcément attribués. Certains
@@ -207,11 +231,26 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
                 className="mt-3 min-h-[48px] w-full rounded-tile bg-violet-light px-3 font-display text-base font-extrabold text-ink"
               >
                 <option value="">Choisir un numéro…</option>
-                {board.map((identityId, index) => (
-                  <option key={`${index}-${identityId}`} value={index + 1}>
-                    {index + 1} — {getIdentity(identityId)?.name ?? identityId}
-                  </option>
-                ))}
+                {board.map((identityId, index) => {
+                  const slot = index + 1;
+                  const name = getIdentity(identityId)?.name ?? identityId;
+                  // Déjà donné à un autre : toujours sélectionnable — ça échange —
+                  // mais signalé. Le numéro de ce joueur-ci, lui, reste neutre.
+                  const holder = holders.get(slot);
+                  const taken = holder !== undefined && holder.playerId !== opponent.playerId;
+
+                  return (
+                    <option
+                      key={`${index}-${identityId}`}
+                      value={slot}
+                      style={taken ? TAKEN_OPTION_STYLE : undefined}
+                    >
+                      {taken
+                        ? `${slot} — ${name} · déjà pour ${holder.nickname}`
+                        : `${slot} — ${name}`}
+                    </option>
+                  );
+                })}
               </select>
             </li>
           );
@@ -231,5 +270,37 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
         </p>
       </div>
     </PhaseShell>
+  );
+}
+
+/**
+ * Son propre boîtier, en rappel pendant le vote.
+ *
+ * Autour de la table, on l'a sous les yeux pendant qu'on vote ; à l'écran, il
+ * avait disparu avec la phase précédente. Volontairement secondaire — bordure
+ * pointillée, pas de carte blanche, titre discret : on le consulte, on ne le
+ * lit pas en premier.
+ */
+function OwnCaseReminder({ placed }: { placed: ShownPicto[] | undefined }) {
+  // Vue d'un hôte antérieur à ce champ : rien à rappeler.
+  if (!placed) return null;
+
+  return (
+    <section
+      aria-labelledby="rappel-boitier"
+      className="rounded-card border-2 border-dashed border-violet/20 px-4 py-3"
+    >
+      <h2
+        id="rappel-boitier"
+        className="mb-2 font-display text-xs font-extrabold uppercase tracking-widest text-muted"
+      >
+        Ton boîtier <span className="normal-case tracking-normal">(rappel)</span>
+      </h2>
+      {placed.length > 0 ? (
+        <PictoCase placed={placed} />
+      ) : (
+        <p className="text-sm font-semibold text-muted">Tu n’as rien posé cette manche.</p>
+      )}
+    </section>
   );
 }

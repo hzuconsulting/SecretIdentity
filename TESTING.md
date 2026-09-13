@@ -12,7 +12,7 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 372 tests
+### Couverture — 373 tests
 
 **`scoring.test.ts`** — le calcul de score
 - 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
@@ -104,9 +104,10 @@ y dure 600 ms. Les minuteurs restent de vrais `setTimeout`.
 - *confidentialité en manche* : le plateau est public — c'est la règle — mais un joueur ne
   reçoit **que son propre numéro**, et aucune vue ne porte `reveals` avant `RESULTS` ;
   `opponents` n'existe qu'en `GUESSING` et ne porte que `playerId`, `nickname` et
-  `placed`, chaque pictogramme adverse se réduisant à `iconId` et `zone` ; chaque joueur
-  reçoit sa propre main et **aucune carte d'un autre ne transite par son canal** ; la
-  progression ne contient que des booléens
+  `placed`, chaque pictogramme adverse se réduisant à `iconId` et `zone` ; `yourCase`, le
+  rappel de son propre boîtier, n'existe lui aussi qu'en `GUESSING`, réduit à `iconId` et
+  `zone` — sans carte ni main ; chaque joueur reçoit sa propre main et **aucune carte d'un
+  autre ne transite par son canal** ; la progression ne contient que des booléens
 - *reconnexion en manche* : phase, personnage, main, numéro de manche et **échéance**
   restaurés à l'identique
 
@@ -194,7 +195,7 @@ Deux contextes de navigateur séparés, une partie créée, un code, une jointur
 vérification que chacun voit l'autre **sans rechargement**. Le script affiche pour finir
 la négociation ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 372 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 373 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**

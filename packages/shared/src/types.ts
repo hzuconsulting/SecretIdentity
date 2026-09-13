@@ -426,6 +426,14 @@ export interface PlayerView {
 
   /** GUESSING : les boîtiers des adversaires, nommés. */
   opponents?: OpponentCase[];
+  /**
+   * GUESSING : son propre boîtier, en rappel pendant le vote.
+   *
+   * Un champ distinct de `yourPlaced` plutôt que le même allégé : la carte
+   * d'origine n'a plus d'usage une fois le boîtier validé, et le type le dit —
+   * l'image et la zone, comme pour les adversaires.
+   */
+  yourCase?: ShownPicto[];
   yourVotes?: Record<PlayerId, Slot>;
   yourVotesSubmitted?: boolean;
 

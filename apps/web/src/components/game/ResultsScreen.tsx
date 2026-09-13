@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
-  REVEAL_STEP_MS,
   getIdentity,
   type IdentityId,
   type PlayerView,
@@ -11,6 +10,7 @@ import {
   type Slot,
 } from '@identite-secrete/shared';
 import { useSound } from '@/hooks/useSound';
+import type { SoundName } from '@/lib/sound';
 import { Button } from '@/components/ui/Button';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { PictoCase } from './PictoCase';
@@ -22,6 +22,9 @@ interface ResultsScreenProps {
   onNextRound: () => Promise<unknown>;
 }
 
+/** Laisse finir la note de changement de phase avant le verdict. */
+const VERDICT_DELAY_MS = 400;
+
 /**
  * Fin de manche : tout est révélé, et on prend son temps.
  *
@@ -30,10 +33,11 @@ interface ResultsScreenProps {
  * coupait la conversation au milieu. L'hôte lance la manche suivante quand tout
  * le monde a vu ce qu'il voulait voir.
  *
- * La révélation reste séquentielle, un boîtier toutes les 1,5 s : c'est la seule
- * mise en scène du jeu, et tout montrer d'un coup gâcherait le suspense. Mais
- * ce n'est qu'une animation — rien n'avance tout seul après. Avec
- * `prefers-reduced-motion`, tout s'affiche immédiatement.
+ * **Tout est affiché d'un coup.** La révélation était séquentielle, un boîtier
+ * toutes les 1,5 s ; mais chaque diffusion de l'hôte apporte un nouveau
+ * tableau `reveals`, et le spectacle repartait de zéro — la liste « se
+ * rechargeait » sous les yeux de la table. Les cartes arrivent maintenant
+ * ensemble, avec une seule entrée en fondu au montage, jamais rejouée.
  */
 export function ResultsScreen({ view, onNextRound }: ResultsScreenProps) {
   const reduceMotion = useReducedMotion();
@@ -41,41 +45,33 @@ export function ResultsScreen({ view, onNextRound }: ResultsScreenProps) {
   const reveals = view.reveals ?? [];
   const board = view.board ?? [];
 
-  const [shown, setShown] = useState(() => (reduceMotion ? reveals.length : 0));
   const [advancing, setAdvancing] = useState(false);
 
+  // Un seul son pour toute la révélation : on entend si on a trouvé avant même
+  // d'avoir lu les cartes. Une valeur simple plutôt que le tableau en
+  // dépendance — le tableau change à chaque diffusion, le verdict non.
+  const others = reveals.filter((reveal) => reveal.playerId !== view.you.id);
+  const verdict: SoundName =
+    others.length === 0
+      ? 'reveal'
+      : others.some((reveal) => reveal.guessedByPlayerIds.includes(view.you.id))
+        ? 'correct'
+        : 'wrong';
+
+  // Une fois par manche, pas une fois par rendu. Un léger décalage laisse
+  // passer la note de changement de phase de `PhaseShell` au lieu de la
+  // couvrir ; la manche n'est marquée « jouée » que lorsque le son part.
+  const soundedRound = useRef<number | null>(null);
   useEffect(() => {
-    if (reduceMotion) {
-      setShown(reveals.length);
-      return;
-    }
+    if (reveals.length === 0 || soundedRound.current === view.roundNumber) return;
 
-    setShown(0);
-    const interval = setInterval(() => {
-      setShown((current) => {
-        if (current >= reveals.length) {
-          clearInterval(interval);
-          return current;
-        }
-
-        // Le son dépend de ce que la carte annonce : on entend si on a trouvé
-        // avant même d'avoir lu la carte.
-        const reveal = reveals[current];
-        if (reveal) {
-          const isMine = reveal.playerId === view.you.id;
-          if (isMine) play('reveal');
-          else play(reveal.guessedByPlayerIds.includes(view.you.id) ? 'correct' : 'wrong');
-        }
-
-        return current + 1;
-      });
-    }, REVEAL_STEP_MS);
-
-    return () => clearInterval(interval);
-  }, [reveals, reduceMotion, play, view.you.id]);
-
-  const visible = reveals.slice(0, shown);
-  const allShown = shown >= reveals.length;
+    const round = view.roundNumber;
+    const timer = window.setTimeout(() => {
+      soundedRound.current = round;
+      play(verdict);
+    }, VERDICT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [view.roundNumber, reveals.length, verdict, play]);
 
   // Les numéros que quelqu'un portait. Tout le reste du plateau était un leurre :
   // un vote tombé dessus mérite d'être signalé comme tel, sinon on croit à une
@@ -92,44 +88,27 @@ export function ResultsScreen({ view, onNextRound }: ResultsScreenProps) {
 
   return (
     <PhaseShell view={view} title="Révélation" hideTimer>
-      <PhaseAnnouncement
-        label={
-          allShown
-            ? 'Tous les personnages sont révélés.'
-            : 'Les personnages se révèlent un par un.'
-        }
-      />
+      <PhaseAnnouncement label="Tous les personnages sont révélés." />
 
+      {/*
+        Clé stable (le joueur) et aucun `AnimatePresence` : une nouvelle vue
+        pour la même manche met les cartes à jour sur place, sans les démonter
+        ni rejouer leur entrée.
+      */}
       <ul className="flex flex-col gap-3">
-        <AnimatePresence initial={false}>
-          {visible.map((reveal) => (
-            <RevealCard
-              key={reveal.playerId}
-              reveal={reveal}
-              youId={view.you.id}
-              board={board}
-              ownedSlots={ownedSlots}
-            />
-          ))}
-        </AnimatePresence>
+        {reveals.map((reveal) => (
+          <RevealCard
+            key={reveal.playerId}
+            reveal={reveal}
+            youId={view.you.id}
+            board={board}
+            ownedSlots={ownedSlots}
+            animate={!reduceMotion}
+          />
+        ))}
       </ul>
 
-      {!allShown ? (
-        <div className="flex flex-col items-center gap-1">
-          <p className="text-sm font-semibold text-muted">
-            {shown} / {reveals.length}
-          </p>
-          <button
-            type="button"
-            onClick={() => setShown(reveals.length)}
-            className="min-h-[44px] font-display text-xs font-extrabold uppercase tracking-widest text-violet"
-          >
-            Tout révéler
-          </button>
-        </div>
-      ) : null}
-
-      {allShown && view.roundScores ? (
+      {view.roundScores ? (
         <motion.section
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -164,30 +143,28 @@ export function ResultsScreen({ view, onNextRound }: ResultsScreenProps) {
         </motion.section>
       ) : null}
 
-      {allShown ? (
-        <div className="mt-auto flex flex-col gap-2 pt-2">
-          {view.you.isHost ? (
-            <>
-              <Button onClick={() => void advance()} disabled={advancing || view.paused === true}>
-                {advancing
-                  ? 'Un instant…'
-                  : isLastRound
-                    ? 'Voir le classement final'
-                    : 'Manche suivante'}
-              </Button>
-              <p className="text-center text-sm font-semibold text-muted">
-                Prenez votre temps : rien n’avance tant que tu n’as pas appuyé.
-              </p>
-            </>
-          ) : (
+      <div className="mt-auto flex flex-col gap-2 pt-2">
+        {view.you.isHost ? (
+          <>
+            <Button onClick={() => void advance()} disabled={advancing || view.paused === true}>
+              {advancing
+                ? 'Un instant…'
+                : isLastRound
+                  ? 'Voir le classement final'
+                  : 'Manche suivante'}
+            </Button>
             <p className="text-center text-sm font-semibold text-muted">
-              {isLastRound
-                ? 'L’hôte affichera le classement final quand tout le monde aura vu.'
-                : 'L’hôte lancera la manche suivante quand tout le monde aura vu.'}
+              Prenez votre temps : rien n’avance tant que tu n’as pas appuyé.
             </p>
-          )}
-        </div>
-      ) : null}
+          </>
+        ) : (
+          <p className="text-center text-sm font-semibold text-muted">
+            {isLastRound
+              ? 'L’hôte affichera le classement final quand tout le monde aura vu.'
+              : 'L’hôte lancera la manche suivante quand tout le monde aura vu.'}
+          </p>
+        )}
+      </div>
     </PhaseShell>
   );
 }
@@ -199,9 +176,11 @@ interface RevealCardProps {
   youId: string;
   board: IdentityId[];
   ownedSlots: ReadonlySet<Slot>;
+  /** Entrée en fondu au montage — et seulement au montage. */
+  animate: boolean;
 }
 
-function RevealCard({ reveal, youId, board, ownedSlots }: RevealCardProps) {
+function RevealCard({ reveal, youId, board, ownedSlots, animate }: RevealCardProps) {
   const found = reveal.guessedByPlayerIds.length;
   const youFound = reveal.guessedByPlayerIds.includes(youId);
   const isYou = reveal.playerId === youId;
@@ -209,10 +188,9 @@ function RevealCard({ reveal, youId, board, ownedSlots }: RevealCardProps) {
 
   return (
     <motion.li
-      layout
-      initial={{ opacity: 0, y: 16, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
+      initial={animate ? { opacity: 0, y: 12 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
       className="rounded-card bg-white p-4 shadow-card"
     >
       {/*

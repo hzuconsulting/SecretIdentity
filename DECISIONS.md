@@ -1334,11 +1334,45 @@ jamais nécessaire pour jouer.
 
 ---
 
+## Lot 13 — Ce qu'on a sous les yeux pendant la manche
+
+### D-86 · Son propre boîtier pendant le vote, et les numéros déjà donnés
+
+**Décision.** La vue de vote porte `yourCase` : les pictogrammes de son propre boîtier,
+réduits à `iconId` et `zone`, affichés en rappel au-dessus des bulletins. Dans chaque
+bulletin, un numéro déjà attribué à un autre joueur apparaît en gris, suivi de « déjà
+pour … » ; il reste choisissable, et le choisir échange toujours les deux votes.
+
+**Pourquoi.** « Sur la page des votes, on voit nos pictogrammes, un rappel de ce qu'on
+avait mis. » Autour d'une vraie table, son boîtier reste posé devant soi. Le gris seul ne
+suffisait pas : Safari sur iPhone ignore la couleur des options d'un `<select>`, d'où la
+mention écrite.
+
+**Coût.** Un champ de plus en `GUESSING`. On ne réutilise pas `yourPlaced`, dont le type
+exige l'identifiant de carte : la vue de vote n'a pas à le porter.
+
+---
+
+### D-87 · Le compteur reste en haut, les résultats arrivent d'un coup
+
+**Décision.** L'en-tête de phase (manche, titre, temps restant) reste collé en haut de
+l'écran pendant le défilement. L'écran de révélation montre toutes les cartes dès son
+arrivée, sans les dévoiler une à une ; un seul son, une fois par manche.
+
+**Pourquoi.** « Quand je descends, je ne vois plus le temps restant. » Et la révélation
+une à une repartait de zéro à chaque nouvelle vue reçue — un joueur qui se reconnecte
+suffisait —, si bien que la liste semblait se recharger sous les yeux.
+
+**Coût.** La petite mise en scène de la révélation disparaît ; le dépouillement des votes,
+lui, est lisible tout de suite.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  372 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  373 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -1349,7 +1383,7 @@ jamais nécessaire pour jouer.
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 372 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 373 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.

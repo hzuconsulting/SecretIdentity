@@ -10,6 +10,7 @@ import {
 } from '@identite-secrete/shared';
 import {
   TestClient,
+  containsValue,
   hostPlaysToTheEnd,
   startTestServer,
   waitForRoundEnd,
@@ -176,6 +177,31 @@ describe('matériel de vote', () => {
       for (const opponent of client.lastView.opponents ?? []) {
         expect(Object.keys(opponent)).toEqual(['playerId', 'nickname', 'placed']);
       }
+    }
+  });
+
+  it('rappelle à chacun son propre boîtier, réduit à l’image et à la zone', async () => {
+    const { code, players } = await playingGame();
+    const game = await server.store.get(code);
+    const round = game!.rounds[0]!;
+
+    for (const client of players) {
+      const view = await client.waitForView((v) => v.phase === 'GUESSING', 'phase de vote');
+      const own = round.assignments.get(client.session!.playerId)!.placed;
+
+      // Ce qu'il a posé, dans l'ordre de pose…
+      expect(view.yourCase).toEqual(own.map(({ iconId, zone }) => ({ iconId, zone })));
+      for (const picto of view.yourCase ?? []) {
+        expect(Object.keys(picto).sort()).toEqual(['iconId', 'zone']);
+      }
+
+      // …sans la carte d'origine, ni la main, ni le boîtier de travail : la
+      // phase de vote n'en a plus l'usage.
+      for (const { cardId } of own) {
+        expect(containsValue(view, cardId), `carte ${cardId}`).toBe(false);
+      }
+      expect(view.yourHand).toBeUndefined();
+      expect(view.yourPlaced).toBeUndefined();
     }
   });
 });

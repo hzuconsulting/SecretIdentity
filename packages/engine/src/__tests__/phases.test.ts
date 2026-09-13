@@ -393,9 +393,11 @@ describe('confidentialité en cours de manche', () => {
 
     for (const client of players) {
       for (const view of client.received) {
-        // Les boîtiers adverses n'existent qu'en phase de vote.
+        // Les boîtiers adverses — et le rappel du sien — n'existent qu'en phase
+        // de vote.
         if (view.phase !== 'GUESSING') {
           expect(view.opponents, `opponents en phase ${view.phase}`).toBeUndefined();
+          expect(view.yourCase, `yourCase en phase ${view.phase}`).toBeUndefined();
           continue;
         }
 
@@ -405,6 +407,12 @@ describe('confidentialité en cours de manche', () => {
           for (const picto of opponent.placed) {
             expect(Object.keys(picto).sort()).toEqual(['iconId', 'zone']);
           }
+        }
+
+        // Son propre boîtier, même réduction.
+        expect(view.yourCase).toBeDefined();
+        for (const picto of view.yourCase ?? []) {
+          expect(Object.keys(picto).sort()).toEqual(['iconId', 'zone']);
         }
       }
     }

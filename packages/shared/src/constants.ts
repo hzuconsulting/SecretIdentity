@@ -111,13 +111,6 @@ export const HAND_CATEGORY_QUOTAS = {
  * personnages du plateau en même temps que le sien.
  */
 export const IDENTITY_REVEAL_MS = 8_000;
-/**
- * Intervalle entre deux révélations séquentielles en phase RESULTS.
- *
- * C'est une mise en scène côté écran, pas une échéance : la phase RESULTS n'a
- * pas de minuteur, et c'est l'hôte qui lance la manche suivante.
- */
-export const REVEAL_STEP_MS = 1_500;
 /** Période de grâce après une déconnexion avant retrait effectif. */
 export const DISCONNECT_GRACE_MS = 60_000;
 /** Délai avant transfert automatique du rôle d'hôte. */

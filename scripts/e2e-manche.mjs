@@ -171,9 +171,9 @@ try {
   }
   ok('revelation affichee');
 
-  // Tout le monde voit le dépouillement des votes, une fois la révélation finie.
+  // Tout le monde voit le dépouillement des votes, dès l'arrivée : les cartes
+  // sont toutes révélées d'un coup.
   for (const page of players) {
-    await page.getByRole('button', { name: /tout révéler/i }).click().catch(() => {});
     await page.getByText(/Ce que les autres ont voté/i).first().waitFor({ timeout: 30_000 });
   }
   ok('le detail des votes est affiche a chacun');
