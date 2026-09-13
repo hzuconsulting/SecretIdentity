@@ -1528,6 +1528,31 @@ demanderait un ntfy à soi (`NEXT_PUBLIC_DIRECTORY_URL`).
 
 ---
 
+### D-94 · Seuls les salons figurent dans la liste
+
+**Décision.** Une partie est annoncée tant qu'elle est au salon, et retirée dès son
+lancement (`describeGame` rend `null` hors de `LOBBY`). « Rejouer » la ramène au salon,
+donc dans la liste. L'accueil écarte aussi les annonces `playing` que publient encore les
+versions plus anciennes. Le format ne change pas : `status`, `round` et `rounds` restent
+publiés, toujours `lobby`, 0 et le nombre de manches, parce que le schéma des lecteurs
+déjà installés les exige. Revient sur la ligne grisée « En cours » de D-91.
+
+**Pourquoi.** « Ce que je veux, c'est ne plus voir les parties en cours dont l'hôte a
+quitté la partie. » Une partie lancée ne s'ouvre qu'à ses anciens joueurs : sur la liste,
+elle n'était qu'une ligne sans lien. C'est pourtant elle qui coûtait le plus au quota
+(D-93) — un renouvellement toutes les 100 s et un message par manche ou par joueur qui
+clignote, pendant 20 à 60 minutes —, et elle seule pouvait traîner après le départ de son
+hôte quand le retrait était refusé. L'historique du sujet le confirme : les 12 parties
+réelles de la journée ont toutes été retirées au départ du dernier joueur, et toutes les
+parties restées « en cours » sans hôte venaient des scripts e2e.
+
+**Coût.** On ne voit plus qu'une partie se joue. Un ancien joueur revient toujours par le
+bandeau « Partie en cours » ou par son code. Le retrait au lancement attend le plancher
+de 10 s après la dernière annonce : pendant ce temps, « Rejoindre » peut mener à
+`GAME_ALREADY_STARTED`.
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**

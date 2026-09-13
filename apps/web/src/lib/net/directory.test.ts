@@ -247,10 +247,20 @@ describe('agrégation', () => {
     for (const code of codes.slice(0, 5)) expect(games.map((game) => game.code)).not.toContain(code);
   });
 
+  it('écarte une partie lancée, qu’une version plus ancienne annonce encore', () => {
+    const games = aggregateDirectory(
+      [
+        record(NOW - 5_000, open({ code: 'AAAAA', status: 'playing', round: 2 })),
+        record(NOW - 5_000, open({ code: 'BBBBB' })),
+      ],
+      NOW,
+    );
+    expect(games.map((game) => game.code)).toEqual(['BBBBB']);
+  });
+
   it('montre d’abord ce qu’on peut rejoindre, dans un ordre stable', () => {
     const games = aggregateDirectory(
       [
-        record(NOW - 1_000, open({ code: 'PPPPP', host: 'Paul', status: 'playing', round: 2 })),
         record(NOW - 2_000, open({ code: 'FFFFF', host: 'Fanny', players: MAX_PLAYERS })),
         record(NOW - 3_000, open({ code: 'ZZZZZ', host: 'Zoé' })),
         record(NOW - 4_000, open({ code: 'AAAAA', host: 'alice' })),
@@ -258,7 +268,7 @@ describe('agrégation', () => {
       NOW,
     );
 
-    expect(games.map((game) => game.host)).toEqual(['alice', 'Zoé', 'Fanny', 'Paul']);
+    expect(games.map((game) => game.host)).toEqual(['alice', 'Zoé', 'Fanny']);
   });
 });
 
@@ -323,10 +333,14 @@ describe('ce qu’une partie publie d’elle-même', () => {
     expect(describeGame(game())).toEqual(listing({ players: 2 }));
   });
 
-  it('annonce la manche d’une partie en cours, et sa génération', () => {
-    expect(describeGame(game({ phase: 'GUESSING', currentRound: 3, epoch: 2 }))).toEqual(
-      listing({ players: 2, status: 'playing', round: 3, gen: 2 }),
-    );
+  it('annonce la génération d’un salon repris', () => {
+    expect(describeGame(game({ epoch: 2 }))).toEqual(listing({ players: 2, gen: 2 }));
+  });
+
+  it('retire une partie dès qu’elle est lancée', () => {
+    for (const phase of ['IDENTITY_REVEAL', 'CLUE_SELECTION', 'GUESSING', 'RESULTS', 'SCOREBOARD'] as const) {
+      expect(describeGame(game({ phase, currentRound: 2 }))).toBeNull();
+    }
   });
 
   it('ne publie rien d’une partie privée', () => {

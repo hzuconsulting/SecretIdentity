@@ -175,7 +175,6 @@ const ROW =
 
 function OpenGameRow({ game }: { game: OpenGame }) {
   const full = isFull(game);
-  const playing = game.status === 'playing';
 
   const content = (
     <>
@@ -192,26 +191,24 @@ function OpenGameRow({ game }: { game: OpenGame }) {
           Partie de {game.host}
         </span>
         <span className="block text-sm leading-snug text-muted">
-          {game.players}/{game.max} joueurs · {describeStatus(game)}
+          {game.players}/{game.max} joueurs · Au salon
         </span>
       </span>
 
       <span
         className={[
           'shrink-0 rounded-full px-3 py-1.5 font-display text-xs font-extrabold uppercase tracking-wide',
-          full || playing ? 'bg-lilac text-muted' : 'bg-violet text-white',
+          full ? 'bg-lilac text-muted' : 'bg-violet text-white',
         ].join(' ')}
       >
-        {full ? 'Complet' : playing ? 'En cours' : 'Rejoindre'}
+        {full ? 'Complet' : 'Rejoindre'}
       </span>
     </>
   );
 
-  // Un salon plein ne mène nulle part, une partie commencée non plus : le
-  // moteur n'y laisse revenir que ses anciens joueurs, qui ont pour cela le
-  // bandeau « Partie en cours » ou leur code (D-91). On les montre, sans en
-  // faire un lien.
-  if (full || playing) return <div className={`${ROW} opacity-70`}>{content}</div>;
+  // Un salon plein ne mène nulle part : on le montre, sans en faire un lien.
+  // Une partie lancée n'est jamais listée (D-94).
+  if (full) return <div className={`${ROW} opacity-70`}>{content}</div>;
 
   return (
     <Link
@@ -221,11 +218,4 @@ function OpenGameRow({ game }: { game: OpenGame }) {
       {content}
     </Link>
   );
-}
-
-function describeStatus(game: OpenGame): string {
-  // Un salon plein le dit déjà sur sa pastille « Complet », une partie
-  // commencée sur la sienne, « En cours ».
-  if (game.status === 'lobby') return 'Au salon';
-  return game.round > 0 ? `Manche ${game.round}/${game.rounds}` : 'Partie commencée';
 }

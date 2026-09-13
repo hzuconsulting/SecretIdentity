@@ -58,11 +58,10 @@ export const MIN_PUBLISH_INTERVAL_MS = 10_000;
 /**
  * Renouvellement d'une annonce inchangée.
  *
- * C'est le poste de dépense principal : 36 messages par heure de partie
- * publique, soit environ sept heures sur le quota du jour — une soirée entière,
- * même en partageant l'adresse IP. Les départs normaux (partie privée, finie,
- * fermée, laissée sans personne) publient un retrait immédiat : ce battement ne
- * sert qu'à faire disparaître un hôte parti **sans** prévenir.
+ * C'est le poste de dépense principal : 36 messages par heure d'attente au
+ * salon — le seul moment où une partie est annoncée (D-94). Les départs normaux
+ * (partie lancée, privée, fermée, laissée sans personne) publient un retrait :
+ * ce battement ne sert qu'à faire disparaître un hôte parti **sans** prévenir.
  */
 export const HEARTBEAT_MS = 100_000;
 
@@ -105,9 +104,21 @@ export const MAX_POLL_LINES = 1_000;
 /** Version du format. Elle figure aussi dans le nom du sujet (`config.ts`). */
 export const DIRECTORY_VERSION = 1;
 
+/**
+ * Un hôte à jour n'annonce plus que des salons (D-94). `playing` reste lisible
+ * parce que des versions plus anciennes le publient encore ; l'agrégation
+ * l'écarte.
+ */
 export type ListingStatus = 'lobby' | 'playing';
 
-/** Ce qu'une partie dit d'elle-même dans l'annuaire. */
+/**
+ * Ce qu'une partie dit d'elle-même dans l'annuaire.
+ *
+ * `status`, `round` et `rounds` ne portent plus d'information — toujours
+ * `lobby`, 0 et le nombre de manches — mais restent publiés : le schéma des
+ * lecteurs déjà installés les exige, et une annonce sans eux leur serait
+ * invisible.
+ */
 export interface DirectoryListing {
   code: string;
   /** Pseudo de l'hôte du salon. */
@@ -303,9 +314,11 @@ export function aggregateDirectory(
   for (const { time, message } of latest.values()) {
     if (message.type !== 'open') continue;
     if (now - time > staleMs) continue;
-    // Une partie où personne n'est connecté n'accueillerait personne. Un hôte
-    // à jour ne l'annonce plus ; une version plus ancienne le peut encore.
+    // Une partie où personne n'est connecté n'accueillerait personne, une
+    // partie lancée non plus. Un hôte à jour n'annonce ni l'une ni l'autre ;
+    // une version plus ancienne le peut encore.
     if (message.players === 0) continue;
+    if (message.status !== 'lobby') continue;
 
     const { type: _type, at: _at, ...listing } = message;
     open.push({ ...listing, updatedAt: time });
@@ -325,9 +338,8 @@ function displayOrder(a: OpenGame, b: OpenGame): number {
   );
 }
 
-/** Salon avec de la place, puis salon complet, puis partie en cours. */
+/** Salon avec de la place, puis salon complet. */
 function rank(game: OpenGame): number {
-  if (game.status === 'playing') return 2;
   return isFull(game) ? 1 : 0;
 }
 
@@ -359,7 +371,7 @@ export function estimateServerNow(records: readonly DirectoryRecord[], localNow:
 
 /**
  * Ce que la partie publie d'elle-même, ou `null` si elle ne doit pas figurer
- * dans l'annuaire : partie privée, terminée, sans hôte identifiable, ou sans
+ * dans l'annuaire : partie privée, lancée, sans hôte identifiable, ou sans
  * aucun joueur connecté.
  *
  * C'est la **seule** porte entre l'état complet du moteur et le sujet public :
@@ -369,7 +381,12 @@ export function describeGame(game: Game): DirectoryListing | null {
   // Une sauvegarde antérieure au réglage n'a pas de visibilité : c'est la
   // valeur par défaut, publique, qui s'applique.
   if (game.settings.visibility === 'private') return null;
-  if (game.phase === 'FINAL_RESULTS') return null;
+  // Seul un salon s'annonce : une partie lancée ne s'ouvre qu'à ses anciens
+  // joueurs, et c'est elle qui coûtait le plus au quota, battement après
+  // battement, manche après manche. Retirée au lancement, elle ne peut plus
+  // traîner dans la liste une fois son hôte parti (D-94). « Rejouer » la
+  // ramène au salon, donc dans la liste.
+  if (game.phase !== 'LOBBY') return null;
 
   const host = cleanText(game.players.get(game.hostId)?.nickname ?? '').slice(0, MAX_NICKNAME_LENGTH);
   if (!isValidGameCode(game.code) || !host) return null;
@@ -380,15 +397,13 @@ export function describeGame(game: Game): DirectoryListing | null {
   // tout le monde déconnecté : rien à montrer tant que personne n'est revenu.
   if (players === 0) return null;
 
-  const lobby = game.phase === 'LOBBY';
-
   return {
     code: normalizeGameCode(game.code),
     host,
     players: Math.min(players, MAX_PLAYERS),
     max: MAX_PLAYERS,
-    status: lobby ? 'lobby' : 'playing',
-    round: lobby ? 0 : clamp(game.currentRound, 0, TOTAL_ROUNDS),
+    status: 'lobby',
+    round: 0,
     rounds: TOTAL_ROUNDS,
     gen: clamp(game.epoch ?? 0, 0, 1_000_000),
   };
