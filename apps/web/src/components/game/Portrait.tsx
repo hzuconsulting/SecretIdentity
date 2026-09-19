@@ -23,8 +23,16 @@ interface PortraitProps {
   /** Nom du personnage : sert à l'initiale de repli. Il est toujours écrit à côté. */
   name: string;
   size?: PortraitSize;
-  /** Taille affichée, quand aucune des quatre ne convient (carte Mystère compacte). */
-  px?: number;
+  /**
+   * Taille affichée, quand aucune des quatre ne convient.
+   *
+   * Un nombre de pixels (carte Mystère compacte), ou **n'importe quelle
+   * longueur CSS** — `clamp(2rem, 3vw, 4rem)`, typiquement. La seconde forme
+   * existe pour l'écran de suivi, dont toute la typographie est relative à la
+   * largeur de la fenêtre : une photo figée à 40 px y paraîtrait oubliée à côté
+   * d'un nom de 28 px.
+   */
+  px?: number | string;
   /** Fond sombre : la place réservée pendant le chargement s'éclaircit au lieu de s'assombrir. */
   onDark?: boolean;
   className?: string;
@@ -49,6 +57,9 @@ export function Portrait({
   className,
 }: PortraitProps) {
   const box = px ?? SIZES[size];
+  // La taille de police sert au repli sur l'initiale, qui hérite de la boîte.
+  const fontSize =
+    typeof box === 'number' ? Math.max(10, Math.round(box * 0.45)) : `calc(${box} * 0.45)`;
 
   return (
     <span
@@ -59,11 +70,16 @@ export function Portrait({
       ]
         .filter(Boolean)
         .join(' ')}
-      style={{ width: box, height: box, fontSize: Math.max(10, Math.round(box * 0.45)) }}
+      style={{ width: box, height: box, fontSize }}
       aria-hidden="true"
     >
       {/* Clé : un autre personnage repart de zéro, erreur de chargement comprise. */}
-      <PortraitImage key={identityId} identityId={identityId} name={name} box={box} />
+      <PortraitImage
+        key={identityId}
+        identityId={identityId}
+        name={name}
+        {...(typeof box === 'number' ? { box } : {})}
+      />
     </span>
   );
 }
@@ -71,7 +87,12 @@ export function Portrait({
 interface PortraitImageProps {
   identityId: string;
   name: string;
-  box: number;
+  /**
+   * Côté en pixels, quand il est connu : il sert aux attributs `width` et
+   * `height`. Absent pour une taille donnée en longueur CSS — la boîte réserve
+   * déjà la place, et des attributs faux la déformeraient.
+   */
+  box?: number;
 }
 
 function PortraitImage({ identityId, name, box }: PortraitImageProps) {
@@ -92,8 +113,7 @@ function PortraitImage({ identityId, name, box }: PortraitImageProps) {
     <img
       src={portraitUrl(identityId, entry)}
       alt=""
-      width={box}
-      height={box}
+      {...(box !== undefined ? { width: box, height: box } : {})}
       loading="lazy"
       decoding="async"
       draggable={false}

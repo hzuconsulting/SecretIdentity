@@ -13,6 +13,7 @@ import {
 } from 'react';
 import type { ChatMessage, GameError, Phase, PlayerId } from '@identite-secrete/shared';
 import { ShareCode } from '@/components/lobby/ShareCode';
+import { TvInvite } from '@/components/tv/TvInvite';
 import { RulesSheet } from '@/components/rules/RulesSheet';
 import { Button } from '@/components/ui/Button';
 import { SoundToggle } from '@/components/ui/SoundToggle';
@@ -53,7 +54,7 @@ export function useGameChrome(): GameChromeValue | null {
   return useContext(GameChromeContext);
 }
 
-type OpenSheet = 'none' | 'rules' | 'menu' | 'leave' | 'chat';
+type OpenSheet = 'none' | 'rules' | 'menu' | 'leave' | 'chat' | 'tv';
 
 interface GameChromeProviderProps {
   code: string;
@@ -93,6 +94,7 @@ export function GameChromeProvider({
   const openMenu = useCallback(() => setOpen('menu'), []);
   const requestLeave = useCallback(() => setOpen('leave'), []);
   const openChat = useCallback(() => setOpen('chat'), []);
+  const openTv = useCallback(() => setOpen('tv'), []);
 
   const goHome = useCallback(() => {
     setOpen('none');
@@ -147,9 +149,17 @@ export function GameChromeProvider({
       <RulesSheet open={open === 'rules'} onClose={close} />
 
       <Sheet
-        open={open === 'menu' || open === 'leave'}
+        open={open === 'menu' || open === 'leave' || open === 'tv'}
         onClose={leaving ? () => {} : close}
-        title={open === 'leave' ? (inLobby ? 'Quitter le salon ?' : 'Quitter la partie ?') : 'Partie en cours'}
+        title={
+          open === 'leave'
+            ? inLobby
+              ? 'Quitter le salon ?'
+              : 'Quitter la partie ?'
+            : open === 'tv'
+              ? 'Afficher sur la télé'
+              : 'Partie en cours'
+        }
       >
         {open === 'leave' ? (
           <LeaveConfirmation
@@ -160,6 +170,8 @@ export function GameChromeProvider({
             onStay={close}
             onLeave={() => void leaveGame()}
           />
+        ) : open === 'tv' ? (
+          <TvInvite code={code} />
         ) : (
           <GameMenu
             code={code}
@@ -167,6 +179,7 @@ export function GameChromeProvider({
             inLobby={inLobby}
             onRules={openRules}
             onHome={goHome}
+            onTv={openTv}
             onLeave={requestLeave}
           />
         )}
@@ -314,10 +327,11 @@ interface GameMenuProps {
   inLobby: boolean;
   onRules: () => void;
   onHome: () => void;
+  onTv: () => void;
   onLeave: () => void;
 }
 
-function GameMenu({ code, hosting, inLobby, onRules, onHome, onLeave }: GameMenuProps) {
+function GameMenu({ code, hosting, inLobby, onRules, onHome, onTv, onLeave }: GameMenuProps) {
   return (
     <div className="flex flex-col gap-4">
       <ShareCode code={code} />
@@ -329,6 +343,14 @@ function GameMenu({ code, hosting, inLobby, onRules, onHome, onLeave }: GameMenu
             title="Règles du jeu"
             detail="Sans quitter la partie."
             onClick={onRules}
+          />
+        </li>
+        <li>
+          <MenuItem
+            icon="📺"
+            title="Afficher sur la télé"
+            detail="Un écran de suivi pour ceux qui regardent sans jouer."
+            onClick={onTv}
           />
         </li>
         <li>

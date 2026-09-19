@@ -1,6 +1,7 @@
 import {
   CLEANUP_INTERVAL_MS,
   GAME_TTL_MS,
+  SERVER_EVENTS,
   fail,
   type Ack,
   type PlayerId,
@@ -22,7 +23,8 @@ import {
   type HandlerDeps,
 } from './handlers';
 import { adoptRelaySnapshot, buildRelaySnapshot } from './serialization/relay';
-import { broadcastRelay } from './emit';
+import { SpectatorRegistry } from './spectators';
+import { broadcastRelay, sendSpectatorViews } from './emit';
 import type { ConnectionId, Emitter } from './transport';
 
 /**
@@ -38,6 +40,16 @@ import type { ConnectionId, Emitter } from './transport';
  * qu'il reçoit viennent de navigateurs qu'il ne contrôle pas, donc tout est
  * validé, et chaque joueur ne reçoit que la vue calculée pour lui.
  */
+
+/**
+ * Regroupement des vues envoyées aux écrans de suivi.
+ *
+ * Un changement de phase produit une rafale de diffusions — une par joueur —
+ * qui aboutissent toutes au même état public. Sans ce délai, la télé recevrait
+ * huit fois la même vue. Assez court pour que le décompte et les validations
+ * paraissent instantanés à l'œil.
+ */
+const SPECTATOR_DEBOUNCE_MS = 250;
 
 export type EmitListener = (
   connectionId: ConnectionId,
@@ -90,6 +102,11 @@ export class GameHost {
   private emitListener: EmitListener;
   private closed = false;
 
+  /** Les écrans branchés sur une partie de ce nœud sans y jouer. */
+  readonly spectators = new SpectatorRegistry();
+
+  private spectatorTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Compteur monotone des instantanés de reprise émis par ce nœud. */
   private relaySeq = 0;
   /** Empreintes de session, calculées une fois par joueur. */
@@ -106,6 +123,11 @@ export class GameHost {
     const emitter: Emitter = {
       emit: (connectionId, event, payload) => {
         if (this.closed) return;
+        // Toute vue joueur qui part signale un état public potentiellement
+        // changé : c'est le seul point de passage commun à tout le moteur, donc
+        // le seul endroit où accrocher les écrans de suivi sans disséminer un
+        // appel dans chaque règle.
+        if (event === SERVER_EVENTS.stateUpdate) this.scheduleSpectatorRefresh();
         this.emitListener(connectionId, event, payload);
       },
     };
@@ -123,6 +145,7 @@ export class GameHost {
       store: this.store,
       timers: this.timers,
       engine: this.engine,
+      spectators: this.spectators,
       rng: options.rng ?? defaults.rng,
       disconnectGraceMs: options.disconnectGraceMs ?? defaults.disconnectGraceMs,
       hostTransferDelayMs: options.hostTransferDelayMs ?? defaults.hostTransferDelayMs,
@@ -231,18 +254,28 @@ export class GameHost {
       return fail('INVALID_PAYLOAD', { message: 'Action inconnue.' });
     }
 
-    return handler(createHandlerContext(state, this.deps), payload);
+    const ack = await handler(createHandlerContext(state, this.deps), payload);
+    // Filet : une action peut changer l'état public sans qu'aucune vue joueur
+    // ne parte — le dernier joueur connecté qui valide et se déconnecte, par
+    // exemple. L'écran de suivi ne doit pas rester figé pour autant.
+    this.scheduleSpectatorRefresh();
+    return ack;
   }
 
   /** Ferme une connexion : période de grâce, transfert d'hôte, pause éventuelle. */
   async disconnect(connectionId: ConnectionId, reason = 'transport close'): Promise<void> {
     const state = this.connections.get(connectionId);
+    // Un écran de suivi n'a pas de joueur attaché : son canal se ferme sans
+    // qu'aucun `ConnectionState` n'ait à exister. On le débranche d'abord,
+    // avant tout retour anticipé.
+    this.spectators.remove(connectionId);
     if (!state) return;
 
     this.connections.delete(connectionId);
     if (this.closed) return;
 
     await handleDisconnect(createHandlerContext(state, this.deps), reason);
+    this.scheduleSpectatorRefresh();
   }
 
   /**
@@ -260,6 +293,11 @@ export class GameHost {
       const game = await this.store.get(code);
       if (game) await this.engine.tick(game, now);
     }
+
+    // Une échéance peut se déclencher alors que plus personne n'est connecté —
+    // retrait après grâce, transfert d'hôte, mise en pause. Aucune vue joueur
+    // ne part alors, et seul ce rattrapage tient la télé à jour.
+    this.scheduleSpectatorRefresh();
   }
 
   /**
@@ -303,9 +341,50 @@ export class GameHost {
     this.closed = true;
 
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    if (this.spectatorTimer) clearTimeout(this.spectatorTimer);
     this.cleanupTimer = null;
+    this.spectatorTimer = null;
     this.timers.clearAll();
     this.connections.clear();
+    this.spectators.clear();
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  Écrans de suivi
+  // ─────────────────────────────────────────────────────────
+
+  /**
+   * Programme l'envoi d'une vue publique aux écrans branchés.
+   *
+   * Sans écran branché — le cas courant — l'appel ne coûte rien et ne programme
+   * rien : c'est ce qui permet de l'accrocher aux chemins les plus passants du
+   * nœud sans alourdir une partie ordinaire.
+   */
+  private scheduleSpectatorRefresh(): void {
+    if (this.closed || this.spectatorTimer) return;
+    if (this.spectators.size === 0) return;
+
+    this.spectatorTimer = setTimeout(() => {
+      this.spectatorTimer = null;
+      void this.refreshSpectators();
+    }, SPECTATOR_DEBOUNCE_MS);
+
+    (this.spectatorTimer as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * Envoie la vue publique de chaque partie regardée — celles qui ont changé.
+   *
+   * La construction, la comparaison et l'envoi vivent dans `emit.ts`, avec le
+   * reste de la diffusion : ce nœud ne décide que du **moment**.
+   */
+  private async refreshSpectators(now = Date.now()): Promise<void> {
+    if (this.closed) return;
+
+    for (const code of this.spectators.codes()) {
+      const game = await this.store.get(code);
+      if (game) sendSpectatorViews(this.deps.emitter, this.spectators, game, now);
+    }
   }
 
   private startCleanup(): void {

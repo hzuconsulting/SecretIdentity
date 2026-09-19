@@ -2,6 +2,7 @@ import type { EventHandler } from './context';
 import { sessionHandlers } from './session';
 import { roundHandlers } from './round';
 import { chatHandlers } from './chat';
+import { spectateHandlers } from './spectate';
 
 export {
   ConnectionState,
@@ -19,12 +20,13 @@ export { armAbsenceTimers, handleDisconnect } from './session';
  *
  * Le découpage suit les domaines du cahier des charges : la session (§4.3,
  * entrées et sorties), le déroulé d'une partie (§4.1 et §4.3, actions de
- * jeu), et la discussion. Un événement absent de cette table est rejeté par le
- * `GameHost` — il n'existe aucun chemin générique qui laisserait passer un nom
- * inattendu.
+ * jeu), la discussion, et le suivi sans jouer. Un événement absent de cette
+ * table est rejeté par le `GameHost` — il n'existe aucun chemin générique qui
+ * laisserait passer un nom inattendu.
  */
 export const eventHandlers: Record<string, EventHandler> = {
   ...sessionHandlers,
   ...roundHandlers,
   ...chatHandlers,
+  ...spectateHandlers,
 };

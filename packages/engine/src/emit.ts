@@ -6,7 +6,9 @@ import {
 } from '@identite-secrete/shared';
 import { buildConnectedViews, buildPlayerView } from './serialization/playerView';
 import { buildRelayHandoffs } from './serialization/relay';
-import type { Emitter } from './transport';
+import { buildSpectatorView } from './serialization/spectatorView';
+import type { SpectatorRegistry } from './spectators';
+import type { ConnectionId, Emitter } from './transport';
 
 /**
  * Diffusion.
@@ -57,6 +59,45 @@ export function broadcastRelay(
 ): void {
   for (const { connectionId, payload } of buildRelayHandoffs(game, snapshot, excludeConnectionId)) {
     emitter.emit(connectionId, SERVER_EVENTS.relaySnapshot, payload);
+  }
+}
+
+/**
+ * Envoie la vue publique aux écrans branchés sur cette partie (D-95).
+ *
+ * Le **seul** chemin par lequel une vue de suivi sort, et c'est ce qui rend la
+ * déduplication fiable : la vue est construite une fois, son empreinte comparée
+ * à celle que chaque canal a déjà reçue, et rien ne part si rien n'a changé.
+ * Sans cela, le rattrapage d'échéances de l'hôte — une fois par seconde —
+ * enverrait la même révélation cent fois pendant qu'on la commente.
+ *
+ * `force` désigne un canal qui doit recevoir **quoi qu'il arrive** : celui qui
+ * vient de se déclarer spectateur. Sans lui, un écran qui se rebranche après
+ * une coupure resterait noir jusqu'au prochain changement, ce qui peut durer
+ * toute une phase de révélation.
+ *
+ * L'empreinte exclut `serverTime`, qui change à chaque construction et rendrait
+ * la comparaison inutile. Le décompte n'en souffre pas : l'écran tient le sien
+ * à partir de `phaseEndsAt` et de son décalage d'horloge, comme les joueurs.
+ */
+export function sendSpectatorViews(
+  emitter: Emitter,
+  spectators: SpectatorRegistry,
+  game: Game,
+  now = Date.now(),
+  force?: ConnectionId,
+): void {
+  const connections = spectators.connectionsFor(game.code);
+  if (connections.length === 0) return;
+
+  const view = buildSpectatorView(game, now);
+  const { serverTime: _moving, ...stable } = view;
+  const fingerprint = JSON.stringify(stable);
+
+  for (const connectionId of connections) {
+    if (connectionId !== force && spectators.lastSent(connectionId) === fingerprint) continue;
+    spectators.markSent(connectionId, fingerprint);
+    emitter.emit(connectionId, SERVER_EVENTS.spectatorUpdate, view);
   }
 }
 

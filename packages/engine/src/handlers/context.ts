@@ -16,6 +16,7 @@ import type { GameEngine } from '../game/engine';
 import { TimerRegistry, timerKeys } from '../timers';
 import { broadcastState } from '../emit';
 import { RateLimiter } from '../rateLimit';
+import type { SpectatorRegistry } from '../spectators';
 import type { ConnectionId, Emitter } from '../transport';
 
 /**
@@ -34,6 +35,13 @@ export interface HandlerDeps {
   timers: TimerRegistry;
   engine: GameEngine;
   rng: Rng;
+  /**
+   * Les écrans branchés sur une partie sans y jouer.
+   *
+   * Hors de `Game` volontairement : un spectateur n'est pas un état de la
+   * partie, seulement une connexion à qui l'on envoie ce qui est public.
+   */
+  spectators: SpectatorRegistry;
   /** Plafond d'événements par fenêtre, injectable pour les tests. */
   rateLimitMaxEvents?: number;
   rateLimitWindowMs?: number;

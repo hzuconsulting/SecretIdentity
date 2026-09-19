@@ -6,6 +6,7 @@ import {
   MAX_CHAT_LENGTH,
   MAX_NICKNAME_LENGTH,
   MAX_PICTOS,
+  MAX_SPECTATORS,
   MIN_NICKNAME_LENGTH,
   MIN_PICTOS,
   MIN_PLAYERS,
@@ -15,7 +16,14 @@ import {
 } from './constants';
 import { cleanChatText } from './format';
 import { normalizeGameCode } from './gameCode';
-import type { Ack, GameError, GameErrorCode, PlayerView, Phase } from './types';
+import type {
+  Ack,
+  GameError,
+  GameErrorCode,
+  Phase,
+  PlayerView,
+  SpectatorView,
+} from './types';
 
 // ─────────────────────────────────────────────────────────────
 //  Noms d'événements (jamais de chaîne magique ailleurs)
@@ -35,6 +43,8 @@ export const CLIENT_EVENTS = {
   kickPlayer: 'player:kick',
   sendChat: 'chat:send',
   ping: 'time:ping',
+  /** Regarder sans jouer : l'écran de suivi d'une partie (`/tv`). */
+  spectate: 'game:spectate',
 } as const;
 
 export const SERVER_EVENTS = {
@@ -47,6 +57,8 @@ export const SERVER_EVENTS = {
   kicked: 'game:kicked',
   /** L’instantané qui permet à un invité de reprendre la partie (D-73). */
   relaySnapshot: 'host:relay',
+  /** Vue d'un écran de suivi : le public de la partie, et rien d'autre. */
+  spectatorUpdate: 'spectator:update',
 } as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -151,6 +163,15 @@ export const sendChatSchema = z.object({
     ),
 });
 
+/**
+ * Demande de suivi. Le code est repris dans le message parce qu'une connexion
+ * de spectateur n'est attachée à aucun joueur : rien d'autre ne dit sur quelle
+ * partie elle veut regarder.
+ */
+export const spectateSchema = z.object({
+  code: gameCodeSchema,
+});
+
 export const nextRoundSchema = z.object({});
 export const replaySchema = z.object({});
 export const pingSchema = z.object({ clientTime: z.number() });
@@ -164,6 +185,7 @@ export type SubmitGuessesPayload = z.infer<typeof submitGuessesSchema>;
 export type KickPlayerPayload = z.infer<typeof kickPlayerSchema>;
 export type SendChatPayload = z.input<typeof sendChatSchema>;
 export type PingPayload = z.infer<typeof pingSchema>;
+export type SpectatePayload = z.infer<typeof spectateSchema>;
 
 /** Sanity check : les options du salon et les schémas Zod ne divergent pas. */
 export const SETTINGS_OPTIONS = {
@@ -201,6 +223,7 @@ export interface ToastPayload {
 }
 
 export type StateUpdatePayload = PlayerView;
+export type SpectatorUpdatePayload = SpectatorView;
 
 // ─────────────────────────────────────────────────────────────
 //  Erreurs
@@ -225,6 +248,7 @@ const ERROR_MESSAGES: Record<GameErrorCode, string> = {
   SESSION_NOT_FOUND: 'Ta session a expiré.',
   RATE_LIMITED: 'Trop d’actions d’un coup. Attends une seconde.',
   GAME_PAUSED: 'La partie est en pause, il n’y a plus assez de joueurs.',
+  SPECTATORS_FULL: `Cette partie a déjà ${MAX_SPECTATORS} écrans de suivi branchés.`,
   KICKED: 'Tu as été exclu·e de cette partie par l’hôte.',
   INTERNAL_ERROR: 'Une erreur est survenue.',
 };

@@ -475,6 +475,74 @@ export interface PlayerView {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Vue spectateur (l'écran de suivi)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Le boîtier d'un joueur **tel qu'un écran de suivi le montre**.
+ *
+ * Deux champs plutôt qu'un, parce que la table ne découvre pas les deux en même
+ * temps : la progression est publique dès la pose (« Allan a validé »), les
+ * pictogrammes ne le deviennent qu'au vote.
+ */
+export interface SpectatorCase {
+  playerId: PlayerId;
+  nickname: string;
+  /**
+   * Ce qu'il a posé — **vide tant que la phase ne l'a pas rendu public**.
+   * Pendant `CLUE_SELECTION`, aucun joueur ne voit le boîtier d'un autre :
+   * l'écran de suivi non plus, sans quoi il suffirait de le regarder.
+   */
+  placed: ShownPicto[];
+  /** A validé son boîtier (`CLUE_SELECTION`) ou ses votes (`GUESSING`). */
+  submitted: boolean;
+}
+
+/**
+ * Ce que voit un écran branché sur la partie sans y jouer — la télé du salon.
+ *
+ * **Sa règle tient en une phrase : rien ici n'est secret pour personne.** Chaque
+ * champ est l'exact équivalent de quelque chose que *tous* les joueurs voient
+ * déjà à cet instant — le plateau, les scores, le décompte, les boîtiers une
+ * fois posés, la révélation une fois venue. Un numéro de carte Mystère, une
+ * main de cartes Picto ou un vote non dépouillé n'ont aucun champ où entrer, et
+ * c'est délibéré : sinon il suffirait d'ouvrir l'écran de suivi pour tricher.
+ *
+ * C'est donc une vue **strictement plus pauvre** qu'une `PlayerView`, jamais un
+ * sur-ensemble. Elle est construite dans `serialization/spectatorView.ts`, par
+ * liste blanche, comme les vues joueur.
+ */
+export interface SpectatorView {
+  code: string;
+  /** Génération d'hébergement : même usage que dans `PlayerView`. */
+  epoch: number;
+  phase: Phase;
+  roundNumber: number;
+  totalRounds: number;
+  phaseEndsAt: number | null;
+  serverTime: number;
+  settings: Settings;
+  players: PublicPlayer[];
+
+  /** IDENTITY_REVEAL → RESULTS : les personnages du plateau, numérotés. */
+  board?: IdentityId[];
+
+  /** CLUE_SELECTION / GUESSING : où en est chacun, et son boîtier s'il est public. */
+  cases?: SpectatorCase[];
+
+  /** RESULTS : tout est révélé. */
+  reveals?: RoundReveal[];
+  roundScores?: RoundScoreLine[];
+
+  /** SCOREBOARD / FINAL_RESULTS. */
+  standings?: RoundScoreLine[];
+  stats?: GameStats;
+
+  paused?: boolean;
+  pauseReason?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Erreurs typées
 // ─────────────────────────────────────────────────────────────
 
@@ -497,6 +565,7 @@ export type GameErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'RATE_LIMITED'
   | 'GAME_PAUSED'
+  | 'SPECTATORS_FULL'
   | 'KICKED'
   | 'INTERNAL_ERROR';
 

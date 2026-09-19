@@ -263,8 +263,14 @@ function buildProgress(
   return progress;
 }
 
-/** Phase RESULTS : tout est révélé, le numéro de chacun inclus. */
-function buildReveals(game: Game, round: Round): RoundReveal[] {
+/**
+ * Phase RESULTS : tout est révélé, le numéro de chacun inclus.
+ *
+ * Exporté parce que l'écran de suivi (`spectatorView.ts`) montre exactement la
+ * même révélation : à ce stade il n'y a plus rien à cacher, et deux
+ * constructions parallèles finiraient par diverger.
+ */
+export function buildReveals(game: Game, round: Round): RoundReveal[] {
   const possibleGuessers = Math.max(0, round.assignments.size - 1);
 
   const reveals: RoundReveal[] = [];

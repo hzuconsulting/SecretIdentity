@@ -23,6 +23,10 @@ Ce que l'adaptation en ligne ajoute :
 - **Une discussion entre les joueurs.** Le bouton 💬, en bas à droite, ouvre la
   conversation de la partie, à tout moment. Une pastille compte les messages arrivés
   pendant qu'elle était fermée. Rappel affiché : on n'y dévoile pas son numéro.
+- **Un écran de suivi pour la télé.** `/tv?c=CODE` affiche le score, le temps restant, la
+  manche et les huit personnages, en grand, sur fond sombre — pour ceux qui regardent
+  sans jouer. Il ne prend aucune place à table et **ne montre le numéro de personne** : il
+  ne reçoit rien qui ne soit déjà sur l'écran de tous les joueurs.
 - **Un grand catalogue** — plus de mille personnages, près de mille pictogrammes — et
   l'hôte se souvient des personnages déjà vus d'une soirée à l'autre.
 - **Un visage à côté du nom.** Quand une photo libre existe sur Wikimedia Commons, le
@@ -96,7 +100,7 @@ au vert : « Prêt · aucun serveur nécessaire ». S'il reste rose, voir *Dépa
 | Commande | Effet |
 |---|---|
 | `npm run dev` | Serveur de développement Next |
-| `npm test` | Suite Vitest complète (412 tests) |
+| `npm test` | Suite Vitest complète (430 tests) |
 | `npm run test:watch` | Vitest en mode surveillance |
 | `npm run test:e2e` | Vraie partie à deux navigateurs (demande `npm run dev` et Chrome) |
 | `npm run test:e2e:manche` | Manche complète à quatre : exclusion, plateau de 8 avec portraits, pose vert/rouge, vote, décompte, crédits |
@@ -131,7 +135,7 @@ identite-secrete/
 │       ├── random.ts         # Jetons de session (crypto.getRandomValues)
 │       ├── timers.ts         # Registre d'échéances nommées
 │       ├── game/             # engine, pause, roundRules, round, lobby, clues, guesses, chat
-│       ├── serialization/    # playerView.ts — ce qui sort vers un joueur
+│       ├── serialization/    # playerView.ts, spectatorView.ts — ce qui sort, et vers qui
 │       ├── handlers/         # Table des événements acceptés
 │       ├── store/            # GameStore (interface) + InMemoryStore
 │       └── __tests__/        # Intégration : vraies parties, vrais minuteurs
@@ -140,8 +144,8 @@ identite-secrete/
 │   │   ├── portraits.json    # Crédits et empreintes des photos (généré, voir ci-dessous)
 │   │   └── portraits/        # Photos des personnages, 192 px en WebP (généré)
 │   └── src/
-│       ├── app/              # /, /creer, /rejoindre, /game, /comment-jouer, /credits
-│       ├── components/       # game/ (écrans de phase), lobby/, ui/
+│       ├── app/              # /, /creer, /rejoindre, /game, /tv, /comment-jouer, /credits
+│       ├── components/       # game/ (écrans de phase), lobby/, tv/, ui/
 │       ├── data/
 │       │   └── descriptions.json # Une ligne par personnage : qui c'est (écrit à la main)
 │       ├── hooks/            # useGameConnection, useServerClock, useSound
@@ -173,6 +177,13 @@ Ajouter un personnage demande d'ajouter sa ligne : `npm test` le vérifie.
 **Le module le plus important est `packages/engine/src/serialization/playerView.ts`.**
 Tout ce qui part vers un joueur passe par lui, et il construit ses objets par liste
 blanche. Aucun objet `Game` brut n'atteint jamais un canal.
+
+Son voisin `spectatorView.ts` fait le même travail pour l'écran de suivi, sous une règle
+plus stricte : un spectateur ne s'authentifie pas — il suffit du code, qui est affiché en
+haut de l'écran de chaque joueur. Tout ce qui en sort doit donc être considéré comme
+sorti **vers n'importe qui**, et l'invariant du fichier est que chacun de ses champs est
+déjà connu de tous les joueurs à cet instant. C'est une vue strictement plus pauvre
+qu'une vue joueur, jamais un sur-ensemble.
 
 **Le second est `packages/engine/src/game/engine.ts`.** Il détient la machine à états :
 seul le moteur décide d'un changement de phase, sur l'échéance `phaseEndsAt` ou sur la
@@ -275,7 +286,7 @@ Le dépôt contient déjà le workflow `.github/workflows/deploy-pages.yml`.
 1. Dans le dépôt : **Settings → Pages → Source : « GitHub Actions »**.
 2. Pousse sur `main`.
 
-C'est tout. Le workflow vérifie les types, lance les 412 tests, construit le site statique
+C'est tout. Le workflow vérifie les types, lance les 430 tests, construit le site statique
 et le publie sur `https://TON-PSEUDO.github.io/NOM-DU-DEPOT/`. Aucune variable n'est
 requise ; celles de la section *Réseau* peuvent être ajoutées dans
 **Settings → Secrets and variables → Actions → Variables** si le besoin s'en fait sentir.

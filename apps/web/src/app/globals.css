@@ -40,6 +40,52 @@
   .text-stroke-ink {
     text-shadow: 0 3px 0 rgba(27, 19, 56, 0.14);
   }
+
+  /*
+   * Échelle typographique de l'écran de suivi (`/tv`).
+   *
+   * Tout le reste du site vise un pouce à trente centimètres ; celui-ci vise
+   * une pièce à trois mètres, sur un écran dont on ne sait rien — une télé de
+   * 50 pouces, un vidéoprojecteur, ou l'onglet d'un portable posé sur la table.
+   * Les tailles sont donc relatives à la largeur de la fenêtre (`vw`), bornées
+   * des deux côtés : le plancher garde le texte lisible sur un téléphone, le
+   * plafond l'empêche de devenir absurde sur un mur.
+   *
+   * Elles vivent ici plutôt qu'en classes utilitaires répétées parce qu'elles
+   * forment une échelle : c'est le rapport entre elles qui compte, et on doit
+   * pouvoir le relire d'un coup d'œil.
+   */
+  .tv-label {
+    font-size: clamp(0.65rem, 1vw, 1.25rem);
+    letter-spacing: 0.2em;
+  }
+
+  .tv-body {
+    font-size: clamp(0.9rem, 1.45vw, 1.9rem);
+  }
+
+  .tv-value {
+    font-size: clamp(1.1rem, 2vw, 2.6rem);
+  }
+
+  .tv-title {
+    font-size: clamp(1.4rem, 3vw, 4rem);
+    line-height: 1;
+  }
+
+  .tv-hero {
+    font-size: clamp(2.4rem, 7vw, 9rem);
+    line-height: 1;
+  }
+
+  /*
+   * Les portraits suivent la même échelle que le texte qu'ils accompagnent :
+   * une photo de 40 px à côté d'un nom de 28 px paraît oubliée. `Portrait`
+   * accepte une longueur CSS pour cette raison précise.
+   */
+  .tv-portrait {
+    --tv-portrait: clamp(2rem, 3.2vw, 4.25rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

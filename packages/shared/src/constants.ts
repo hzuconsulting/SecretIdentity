@@ -14,6 +14,18 @@ export const MAX_PLAYERS = 8;
 export const MIN_NICKNAME_LENGTH = 1;
 export const MAX_NICKNAME_LENGTH = 16;
 
+/**
+ * Écrans de suivi branchés en même temps sur une même partie (`/tv`).
+ *
+ * Un spectateur ne prend pas de place à table — il n'entre pas dans
+ * `MAX_PLAYERS` — mais il coûte un canal WebRTC et une vue de plus à chaque
+ * changement sur le téléphone qui héberge, lequel a déjà le plus à faire. Le
+ * plafond couvre largement l'usage réel (une télé, un ordinateur portable) et
+ * transforme un branchement en boucle en refus lisible plutôt qu'en partie qui
+ * rame.
+ */
+export const MAX_SPECTATORS = 4;
+
 // ─────────────────────────────────────────────────────────────
 //  Code de partie
 // ─────────────────────────────────────────────────────────────

@@ -150,6 +150,21 @@ export default function JoinGamePage() {
       <Button onClick={() => void join()} disabled={busy || !ready}>
         {busy ? 'Connexion…' : known ? 'Revenir dans la partie' : 'Rejoindre la partie'}
       </Button>
+
+      {/*
+        L'autre geste possible avec un code : regarder sans jouer. Discret, en
+        pied de page — c'est un usage occasionnel, et il ne doit pas concurrencer
+        le bouton au-dessus.
+      */}
+      <p className="text-center text-sm text-muted">
+        Tu veux seulement suivre la partie&nbsp;?{' '}
+        <Link
+          href={codeReady ? `/tv?c=${normalizeGameCode(code)}` : '/tv'}
+          className="font-semibold text-violet underline decoration-violet/40 underline-offset-2"
+        >
+          Écran de suivi
+        </Link>
+      </p>
     </main>
   );
 }

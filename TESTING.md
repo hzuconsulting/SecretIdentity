@@ -12,7 +12,7 @@ npm run test:watch  # en surveillance pendant le développement
 npm run typecheck   # tsc --noEmit sur shared, engine et client
 ```
 
-### Couverture — 412 tests
+### Couverture — 430 tests
 
 **`scoring.test.ts`** — le calcul de score
 - 3 joueurs : personne ne trouve · tout le monde trouve · votes partiels
@@ -204,6 +204,28 @@ ne les reçoivent jamais.
 - *taille* : huit joueurs, révélation affichée, trente messages de 200 guillemets —
   l'enveloppe envoyée reste sous 45 000 caractères (le plafond d'envoi est de 60 000)
 
+**`spectator.test.ts`** — l'écran de suivi (D-95).
+
+Un spectateur ne s'authentifie pas : il suffit du code, qui est affiché sur l'écran de
+chaque joueur. Ces tests vérifient donc **une seule chose, de plusieurs façons** — tout
+ce qui sort par ce chemin est déjà connu de tous les joueurs à cet instant. Si l'un
+d'eux tombe, on peut tricher en ouvrant `/tv` sur un second téléphone.
+
+- *entrée* : une vue arrive dès la déclaration ; un code inconnu reçoit `GAME_NOT_FOUND`
+- *place* : aucune place prise à table, la partie se lance quand même ; le plafond de
+  `MAX_SPECTATORS` écrans est tenu, une place se libère au débranchement, et se
+  rebrancher n'en consomme pas une de plus
+- *impuissance* : lancer la partie, poser un boîtier, enchaîner une manche et écrire dans
+  la discussion sont tous refusés — aucun joueur n'est attaché à ce canal
+- *confidentialité* : aucun identifiant de carte Picto ne sort jamais ; pendant la pose,
+  `placed` part **vide** alors que la progression est à jour ; pendant le vote, aucune
+  clé `slot`, `hand`, `votes`, `sessionToken` ni `chat` nulle part dans la vue, à aucune
+  profondeur
+- *révélation* : à `RESULTS`, la révélation de l'écran est **exactement** celle des
+  joueurs — à ce stade il n'y a plus rien à cacher
+- *débit* : le rattrapage d'échéances de l'hôte tourne à la seconde, et pourtant une
+  partie immobile n'envoie pas une vue de plus
+
 ---
 
 ## 1 bis. Vraie partie automatisée
@@ -219,7 +241,7 @@ discussion : l'invité écrit, l'hôte voit la pastille « 1 nouveau message »,
 et l'invité lit la réponse panneau ouvert. Le script affiche pour finir la négociation
 ICE des deux côtés.
 
-C'est le seul test qui exerce réellement WebRTC. Les 412 tests de la section 1 parlent au
+C'est le seul test qui exerce réellement WebRTC. Les 430 tests de la section 1 parlent au
 moteur par un canal en mémoire : ils ne peuvent rien dire du transport, et c'est le
 transport qui a produit chaque panne de production jusqu'ici. **Le lancer avant tout
 déploiement touchant `apps/web/src/lib/net/`.**
@@ -445,6 +467,27 @@ grisé pendant la coupure, puis redevient normal — sans qu'aucune phase ne soi
 | Rechargement de l'hôte (F5) | La conversation est toujours là chez tout le monde |
 | Rejoindre en retard | Les derniers messages sont déjà affichés, sans pastille |
 | Lecteur d'écran, discussion ouverte | Chaque nouveau message est annoncé avec son auteur (« Allan : … ») ; le bouton annonce « Ouvrir la discussion : 2 nouveaux messages » |
+
+### 2.14 Écran de suivi
+
+Sur un troisième appareil — l'idéal est une vraie télé ou un vidéoprojecteur, à défaut un
+navigateur en plein écran (F11) sur un portable.
+
+| À vérifier | Attendu |
+|---|---|
+| Menu de la partie → « Afficher sur la télé » | L'adresse `…/tv?c=CODE`, copiable et partageable ; toucher l'entrée ne quitte **pas** la partie |
+| Ouvrir `/tv` sans code | Un champ de code, sur fond sombre, et rien d'autre |
+| Ouvrir l'adresse pendant le salon | Le code en très grand, le nombre de joueurs, et le bandeau des joueurs en bas |
+| Lancer la partie | L'écran suit : manche 1/4, les 8 personnages avec leur photo, le décompte |
+| Pendant la pose | Aucun pictogramme visible sur l'écran de suivi ; « ✓ Validé » apparaît quand un joueur valide |
+| Pendant le vote | Les boîtiers apparaissent, nommés — les mêmes que sur les téléphones |
+| Décompte | Le même chiffre que sur les téléphones, à la seconde près |
+| Révélation | Qui était qui, et combien l'ont trouvé |
+| Le bandeau du bas | Toujours au même endroit, à toutes les phases, avec le score de chacun |
+| Recharger la page de l'hôte (F5) | L'écran affiche « Liaison perdue… », **garde le dernier état**, puis repart tout seul |
+| L'hôte ferme son onglet | « La partie est fermée — l'hôte a quitté. » |
+| Brancher un cinquième écran | Refusé, avec le message de plafond |
+| Depuis l'écran de suivi | **Rien n'est touchable** : aucun bouton de jeu, aucun menu |
 
 ---
 

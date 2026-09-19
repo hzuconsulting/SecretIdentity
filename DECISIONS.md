@@ -1553,11 +1553,65 @@ de 10 s après la dernière annonce : pendant ce temps, « Rejoindre » peut men
 
 ---
 
+### D-95 · Un écran de suivi pour la télé, qui regarde sans jouer
+
+**Décision.** `/tv?c=CODE` ouvre un **écran de suivi** : le code, la manche, le décompte,
+les huit personnages, les boîtiers, la révélation, et le score de chacun en bandeau fixe
+en bas. Fond sombre, typographie en `clamp()` calée sur la largeur de la fenêtre, aucun
+bouton — il est regardé, pas manipulé, et souvent hors de portée de la main. Sans code, la
+page demande le code plutôt que de renvoyer vers `/rejoindre`, qui ferait entrer au salon.
+On y arrive par le menu de la partie (« 📺 Afficher sur la télé », qui donne l'adresse à
+copier sans quitter la partie) ou par un lien en pied de `/rejoindre`.
+
+Techniquement, c'est un nœud invité ordinaire qui, au lieu de `game:join`, envoie
+`game:spectate` : pas de place prise, pas de carte Mystère tirée, pas de main distribuée,
+et **aucun joueur attaché à la connexion** — ce qui suffit à lui refuser toutes les
+actions de jeu, puisque chaque gestionnaire commence par réclamer un joueur attaché. Le
+registre (`engine/src/spectators.ts`) vit dans le nœud, pas dans `Game` : un spectateur
+n'est pas un état de la partie, il n'est ni sauvegardé, ni relayé, ni compté nulle part.
+`MAX_SPECTATORS` vaut 4. Les vues partent par `sendSpectatorViews` (`emit.ts`), accrochées
+au seul point de passage commun du moteur — toute vue joueur qui sort —, regroupées à
+250 ms et **dédupliquées par empreinte, canal par canal**.
+
+**Pourquoi.** « Afficher sur la télé un résumé de la partie, pour les personnes qui ne
+jouent pas. » Autour d'une vraie table, ce résumé existe déjà : les cartes sont au centre,
+les boîtiers posés devant chacun, les jetons de score visibles. C'est précisément ce que
+l'adaptation en ligne avait fait disparaître dans huit téléphones, et ce que cet écran
+rend — d'où le choix de ne rien y inventer qui ne soit sur la table.
+
+Le point dur est ailleurs, et c'est lui qui a dicté la forme : **un spectateur ne
+s'authentifie pas.** Il suffit du code, qui est affiché en haut de l'écran de chaque
+joueur et lu à voix haute dans la pièce. Tout ce qui sort par ce chemin doit donc être
+traité comme sorti *vers n'importe qui*, y compris vers un joueur de la partie qui
+ouvrirait `/tv` sur un second téléphone. D'où `SpectatorView`, construite par liste
+blanche comme les vues joueur, sous un invariant plus strict : **chacun de ses champs est
+déjà connu de tous les joueurs à cet instant**. C'est une vue strictement plus pauvre
+qu'une `PlayerView`, jamais un sur-ensemble. Conséquence directe et visible à l'écran :
+pendant `CLUE_SELECTION`, `placed` part **vide** — seule la progression est publique —, et
+ne s'ouvre qu'à `GUESSING`, quand chaque joueur a les boîtiers des autres sous les yeux.
+
+La discussion en est absente, bien qu'elle soit publique entre joueurs : elle est écrite
+pour la table, pas pour un mur, et l'afficher en grand changerait ce qu'on y écrit.
+
+**Coût.** Un écran de suivi est un canal WebRTC de plus chez l'hôte, qui a déjà le plus à
+faire : d'où le plafond de 4, le regroupement à 250 ms et la déduplication, sans laquelle
+le rattrapage d'échéances (une fois par seconde) renverrait la même révélation cent fois
+pendant qu'on la commente. Le suivi n'apparaît pas dans l'instantané de reprise : après
+une migration d'hébergement, l'écran se rebranche de lui-même à la réouverture du canal,
+avec un trou de quelques secondes. La page ne fait pas sonner les changements de phase —
+les téléphones le font déjà, et un écho décalé n'ajouterait rien. `/tv` embarque le moteur
+dans son lot, comme `/rejoindre`, parce que `lib/net` importe `HostNode` statiquement ;
+sans conséquence pratique, mais c'est 100 kio de trop pour une page qui n'hébergera
+jamais rien. Enfin, la mise en page n'est vérifiée qu'à l'œil : comme le reste des écrans,
+elle n'a pas de test (voir « Points laissés ouverts »).
+
+---
+
 ## Points laissés ouverts
 
 - **Safari a déjà coûté une panne complète, d'autres navigateurs peuvent en cacher.**
   Le bug d'émission binaire (D-59) n'a été trouvé qu'en jouant sur un vrai iPhone. Les
-  412 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
+  430 tests couvrent le moteur et le format de fil, mais l'établissement des canaux
   WebRTC ne se vérifie que dans de vrais navigateurs — Android/Chrome et Firefox restent
   à éprouver de la même façon. La procédure est dans `TESTING.md` §2.
 - **Si l'hôte ferme son onglet, la partie est perdue.** C'est la contrepartie assumée de
@@ -1568,7 +1622,7 @@ de 10 s après la dernière annonce : pendant ce temps, « Rejoindre » peut men
   chantier si le projet devait continuer : une police d'affichage auto-hébergée en
   `.woff2`, chargée via `next/font/local`, garderait le build hors-ligne tout en donnant
   une vraie personnalité.
-- **Aucun test d'interface.** Les 412 tests couvrent le moteur, le format de fil et la logique partagée ;
+- **Aucun test d'interface.** Les 430 tests couvrent le moteur, le format de fil et la logique partagée ;
   les écrans et la couche réseau ne sont vérifiés que par `tsc` et le build. Une passe
   Playwright sur le scénario du §1 serait le complément naturel — et le seul moyen de
   couvrir `lib/net/`, qui a besoin d'un vrai navigateur.
