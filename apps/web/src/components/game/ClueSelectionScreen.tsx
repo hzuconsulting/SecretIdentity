@@ -170,6 +170,10 @@ export function ClueSelectionScreen({ view, onSubmit, onKick }: ClueSelectionScr
           </p>
         </div>
 
+        {/* Les personnages restent sous les yeux pendant l'attente : on peut
+            déjà réfléchir à qui se cache derrière les boîtiers des autres. */}
+        {view.board ? <BoardGrid board={view.board} compact /> : null}
+
         <WaitingPanel view={view} verb="a validé son boîtier" onKick={onKick} />
       </PhaseShell>
     );

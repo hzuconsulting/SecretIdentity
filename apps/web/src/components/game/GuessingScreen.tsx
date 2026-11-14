@@ -176,6 +176,8 @@ export function GuessingScreen({ view, onSubmit, onKick }: GuessingScreenProps) 
           </ul>
         </div>
 
+        <BoardGrid board={board} compact />
+
         <WaitingPanel view={view} verb="a validé ses votes" onKick={onKick} />
 
         <OwnCaseReminder placed={view.yourCase} />
